@@ -1,0 +1,319 @@
+MASTER ROADMAP
+Phase 0  → Environment Setup
+Phase 1  → Face Recognition Engine
+Phase 2  → Face Registration System
+Phase 3  → Database Architecture
+Phase 4  → Attendance System Logic
+Phase 5  → Real-time Recognition Pipeline
+Phase 6  → API Backend
+Phase 7  → GUI / Dashboard
+Phase 8  → Raspberry Pi Optimization
+Phase 9  → Advanced Features
+Phase 0 — Environment Setup ⚙️
+
+First we prepare the lab.
+
+Tasks
+
+ Create project repository
+
+ Create virtual environment
+
+ Install dependencies
+
+ Test webcam capture
+
+ Verify InsightFace model loads
+
+Tools
+Python
+OpenCV
+InsightFace
+NumPy
+FastAPI
+SQLite
+Expected output
+Webcam feed opens successfully
+Phase 1 — Face Recognition Engine 🧠
+
+This is the core brain.
+
+Everything else depends on this.
+
+Tasks
+Face Detection
+
+ Load SCRFD detector
+
+ Detect faces in frame
+
+ Draw bounding boxes
+
+Face Embedding
+
+ Load ArcFace model
+
+ Extract 512-dim embedding
+
+ Verify embedding consistency
+
+Face Matching
+
+ Implement cosine similarity
+
+ Test embedding comparisons
+
+ Tune similarity threshold
+
+Output
+Camera detects face
+Embedding extracted
+Matching working
+Phase 2 — Face Registration System 👤
+
+Users must register once.
+
+Tasks
+
+ Capture multiple frames
+
+ Detect face
+
+ Extract embeddings
+
+ Average embeddings
+
+ Store user data
+
+Registration Flow
+User clicks register
+↓
+Camera captures 5 images
+↓
+Embeddings extracted
+↓
+Average embedding computed
+↓
+Stored in database
+Phase 3 — Database System 🗄
+
+Now we persist data.
+
+Tasks
+
+ Create SQLite database
+
+ Define schema
+
+ Create ORM models
+
+ Save embeddings
+
+ Query embeddings
+
+Tables
+
+users
+
+id
+name
+email
+created_at
+
+face_embeddings
+
+id
+user_id
+embedding
+created_at
+
+attendance
+
+id
+user_id
+date
+time
+status
+Phase 4 — Attendance Logic 📅
+
+This is the business logic layer.
+
+Tasks
+
+ Match recognized user
+
+ Check attendance today
+
+ Mark attendance
+
+ Prevent duplicates
+
+ Implement cooldown
+
+Rules
+Only one attendance per day
+Recognition threshold must pass
+Duplicate detection prevented
+Phase 5 — Real-Time Recognition System 🎥
+
+Now we integrate everything.
+
+Tasks
+
+ Continuous webcam stream
+
+ Detect faces
+
+ Extract embeddings
+
+ Compare database embeddings
+
+ Identify user
+
+ Trigger attendance
+
+Output Example
+Face detected
+User: Vedant
+Attendance marked
+Phase 6 — API Backend 🌐
+
+Now we make the system programmable.
+
+Using FastAPI.
+
+Endpoints
+Register user
+POST /register
+
+Input
+
+name
+email
+face_images
+Recognize face
+POST /recognize
+
+Output
+
+user_id
+confidence
+attendance_status
+Attendance report
+GET /attendance/today
+List users
+GET /users
+Phase 7 — GUI Dashboard 🖥
+
+Now we add UI.
+
+Option 1 (fastest)
+Streamlit
+Option 2 (professional)
+React + FastAPI
+GUI Features
+
+Live camera feed
+
+Register new user
+
+Attendance dashboard
+
+User list
+
+Statistics
+
+Phase 8 — Raspberry Pi Deployment 🍓
+
+After system works on laptop.
+
+Tasks
+
+ Install dependencies on Pi
+
+ Optimize image resolution
+
+ Reduce frame rate
+
+ Enable auto start service
+
+ Connect Pi camera
+
+Performance tweaks
+640x480 resolution
+10 FPS camera
+face tracking enabled
+Phase 9 — Advanced Features (Optional) 🚀
+
+Now we make it industry level.
+
+Liveness Detection
+
+Prevent photo spoofing.
+
+Detect:
+
+blink
+head movement
+depth cues
+Face Tracking
+
+Reduce CPU usage.
+
+Instead of detecting every frame:
+
+Detect → Track → Track → Track
+
+Using:
+
+SORT
+DeepSORT
+Vector Search
+
+If users > 1000.
+
+Use:
+
+FAISS
+Development Task Checklist
+
+Here’s your daily progress checklist.
+
+Environment Setup
+[ ] Python environment
+[ ] Install dependencies
+[ ] Webcam working
+
+Recognition Engine
+[ ] SCRFD detection
+[ ] ArcFace embedding
+[ ] Cosine similarity
+
+Registration
+[ ] Capture frames
+[ ] Extract embeddings
+[ ] Store in DB
+
+Database
+[ ] Users table
+[ ] Embedding storage
+[ ] Attendance table
+
+Recognition System
+[ ] Real-time pipeline
+[ ] Match user
+[ ] Mark attendance
+
+API
+[ ] Register endpoint
+[ ] Recognize endpoint
+[ ] Attendance endpoint
+
+GUI
+[ ] Live camera
+[ ] Register page
+[ ] Attendance dashboard
+
+Deployment
+[ ] Raspberry Pi install
+[ ] Performance tuning
