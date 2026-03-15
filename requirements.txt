@@ -1,7 +1,0 @@
-opencv-python
-insightface
-onnxruntime
-numpy
-fastapi
-uvicorn
-sqlalchemy

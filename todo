@@ -1,370 +1,280 @@
-FINAL LOCKED SYSTEM SPEC
+PHASE 0 — Environment Setup
 
-Your attendance system will use:
-
-SCRFD            → face detection
-ArcFace          → 512D embeddings
-Cosine Similarity → matching
-SQLite           → database
-OpenCV           → webcam stream
-FastAPI          → backend
-
-Optimization layer:
-
-Face Tracking (KCF)
-Embedding Cache
-Recognition Cooldown
-
-Target system:
-
-Users: ~100
-Camera: USB webcam
-OS: Linux (Garuda)
-Future: Raspberry Pi deployment
-FINAL MASTER TODO LIST (LOCKED)
-
-This is the official project roadmap.
-
-No architectural changes after this.
-
-Phase 0 — Project Setup
-
-Goal: prepare development environment.
+Goal: Clean development environment.
 
 Tasks
 
- Create project folder
+1️⃣ Create project folder
 
-smart_attendance/
+smart_attendance
 
- Initialize Git repository
+2️⃣ Create virtual environment
 
- Create Python virtual environment
+python -m venv venv
 
- Install dependencies
+3️⃣ Install dependencies
 
- Verify webcam access using OpenCV
+pip install opencv-python
+pip install mediapipe
+pip install insightface
+pip install numpy
+pip install fastapi
+pip install uvicorn
+pip install sqlalchemy
+pip install pydantic
 
- Download InsightFace models
+4️⃣ Verify webcam index
 
-Dependencies
-python
-opencv-python
-insightface
-onnxruntime
-numpy
-fastapi
-uvicorn
-sqlalchemy
-sqlite3
-Deliverable
-Webcam feed opens successfully
-Phase 1 — Face Detection Engine
+Test:
 
-Goal: detect faces from camera stream.
+cv2.VideoCapture(2)
 
-Tasks
+Output should show webcam feed.
 
- Load SCRFD detector
+PHASE 1 — Camera Streaming
 
- Capture webcam frames
-
- Run face detection
-
- Draw bounding boxes
-
- Verify detection stability
-
-Output Example
-Face detected
-Bounding box drawn
-Phase 2 — Face Embedding System
-
-Goal: convert faces into 512-dimensional vectors.
+Goal: Stable real-time webcam feed.
 
 Tasks
 
- Load ArcFace model
+Build:
 
- Crop detected face
+camera/camera_stream.py
 
- Extract embedding
+Features:
 
- Verify embedding size (512)
+read webcam index 2
 
- Validate embedding consistency
+show live frames
 
-Output Example
-Embedding vector length: 512
-Phase 3 — Cosine Similarity Matcher
+quit with q
 
-Goal: compare two embeddings.
+Success condition:
 
-Tasks
+Stable 30 FPS camera feed
+PHASE 2 — Face Detection
 
- Implement cosine similarity function
-
- Test embedding comparisons
-
- Determine similarity threshold
-
-Threshold
-0.50
-Validation
-Same person similarity > 0.5
-Different person < 0.5
-Phase 4 — SQLite Database System
-
-Goal: persistent storage.
+Goal: Detect faces with BlazeFace.
 
 Tasks
 
- Create SQLite database
+Create:
 
- Implement SQLAlchemy models
+vision/detector.py
 
- Create database tables
+Responsibilities:
 
- Insert test records
+input → frame
+output → face bounding boxes
 
- Query records
+Test pipeline:
 
-Tables
+camera frame → detect faces → draw boxes
+
+Success condition:
+
+Face boxes appear on screen
+PHASE 3 — Face Cropping + Alignment
+
+Goal: Extract clean face images.
+
+Tasks:
+
+Create:
+
+vision/aligner.py
+
+Process:
+
+frame
+   ↓
+face bbox
+   ↓
+crop face
+   ↓
+resize to 112x112
+
+Success condition:
+
+face crop displayed correctly
+PHASE 4 — ArcFace Embedding
+
+Goal: Convert face image → 512 vector.
+
+Create:
+
+vision/embedder.py
+
+Pipeline:
+
+face image
+   ↓
+ArcFace
+   ↓
+512 embedding
+
+Success condition:
+
+print(len(embedding)) == 512
+PHASE 5 — Face Matching
+
+Goal: Identify known users.
+
+Create:
+
+recognition/matcher.py
+
+Function:
+
+match_embedding(new_embedding)
+
+Algorithm:
+
+for each stored embedding
+     compute cosine similarity
+     pick best match
+
+Threshold:
+
+0.55
+
+Success condition:
+
+Same person → matched
+Different person → rejected
+PHASE 6 — Database System
+
+Goal: Store users and embeddings.
+
+Create:
+
+database/db.py
+database/models.py
+
+Tables:
+
 USERS
 id
 name
-email
 created_at
-FACE_EMBEDDINGS
+EMBEDDINGS
 id
 user_id
 embedding_vector
-created_at
 ATTENDANCE
 id
 user_id
 date
 time
 status
-Deliverable
-Database operations working
-Phase 5 — Face Registration System
 
-Goal: register new users.
+Success condition:
 
-Tasks
+User + embedding stored
+PHASE 7 — Registration System
 
- Create registration script
+Goal: Register new student faces.
 
- Capture multiple face frames
+Workflow:
 
- Extract embeddings
+Enter name
+Stand in camera
+Capture 5 frames
+Generate embeddings
+Average embeddings
+Store in database
 
- Compute average embedding
+File:
 
- Store in database
+attendance/register_user.py
 
-Registration Pipeline
-User enters name
-↓
-Camera captures 5 frames
-↓
-Embeddings extracted
-↓
-Average embedding computed
-↓
-Stored in SQLite
-Phase 6 — Embedding Cache System
+Success condition:
 
-Goal: faster recognition.
+User registered
+PHASE 8 — Real-Time Recognition
 
-Tasks
-
- Load embeddings at system startup
-
- Store embeddings in memory
-
- Update cache when new user registers
-
-Cache Example
-embeddings_cache = {
-    user_id : embedding_vector
-}
-Benefit
-No database queries during recognition
-Phase 7 — Face Tracking Optimization
-
-Goal: reduce CPU usage.
-
-Tasks
-
- Implement KCF tracker
-
- Detect faces every N frames
-
- Track faces between detections
-
-Detection Interval
-DETECTION_INTERVAL = 10
+Goal: Automatic recognition.
 
 Pipeline:
 
-Detect → Track → Track → Track
-Phase 8 — Real-Time Recognition System
+camera
+   ↓
+detect
+   ↓
+embedding
+   ↓
+match
+   ↓
+identify user
 
-Goal: identify users live.
+Output example:
 
-Tasks
+Detected: Vedant
+Similarity: 0.71
+PHASE 9 — Attendance Logic
 
- Integrate detection
+Goal: Mark attendance once per day.
 
- Integrate embedding extraction
+Create:
 
- Compare embeddings
+attendance/attendance_service.py
 
- Identify user
+Logic:
 
- Display recognition result
+if attendance already exists today:
+     reject
+else:
+     mark attendance
 
-Example Output
-User: Vedant
-Confidence: 0.67
-Phase 9 — Attendance System
+Success condition:
 
-Goal: mark attendance automatically.
+Duplicate prevention works
+PHASE 10 — FastAPI Backend
 
-Tasks
+Goal: API control.
 
- Check if user already marked today
-
- Insert attendance record
-
- Prevent duplicate entries
-
- Implement cooldown timer
-
-Cooldown
-COOLDOWN_TIME = 10 seconds
-Example
-Vedant detected
-Attendance marked
-
-If repeated:
-
-Attendance already recorded
-Phase 10 — FastAPI Backend
-
-Goal: create API interface.
-
-Endpoints
-
-Register user
+Endpoints:
 
 POST /register
-
-Recognize face
-
-POST /recognize
-
-Attendance report
-
-GET /attendance/today
-
-User list
-
+GET /attendance
 GET /users
-Phase 11 — Dashboard (Optional)
 
-UI options:
+Allows future GUI integration.
 
-Quick
+PHASE 11 — Dashboard (Optional)
+
+Possible options:
+
 Streamlit
-Professional
-React + FastAPI
-Features
+React dashboard
+PyQt
 
-Live camera feed
+Features:
 
-Register user
+attendance table
+user list
+statistics
+PHASE 12 — Raspberry Pi Optimization
 
-Attendance dashboard
+Later tasks:
 
-User list
+model quantization
+frame skipping
+tracking instead of detection
 
-Daily attendance log
+Goal:
 
-Phase 12 — Raspberry Pi Deployment
+≥10 FPS on Raspberry Pi
+Timeline Estimate
 
-Goal: run system on Pi.
+If focused:
 
-Tasks
+Phase	Time
+0–2	1 day
+3–4	1 day
+5–7	2 days
+8–10	2 days
 
- Install dependencies
+Total:
 
- Optimize resolution
-
- Reduce FPS
-
- Configure startup script
-
- Test USB webcam
-
-Optimized Settings
-Resolution: 640x480
-FPS: 10
-Detection interval: 15
-Phase 13 — Testing & Validation
-
-Goal: verify system reliability.
-
-Tests
-
- Multiple users recognition
-
- Duplicate attendance prevention
-
- Low lighting performance
-
- Camera angle robustness
-
- CPU usage monitoring
-
-FINAL PROJECT STRUCTURE
-smart_attendance/
-
-camera/
-    webcam_stream.py
-
-detection/
-    scrfd_detector.py
-
-embedding/
-    arcface_embedder.py
-
-recognition/
-    face_matcher.py
-
-tracking/
-    face_tracker.py
-
-database/
-    db.py
-    models.py
-
-services/
-    attendance_service.py
-
-api/
-    main.py
-
-utils/
-    similarity.py
-
-main.py
-Final Reality Check
-
-If you execute this roadmap cleanly, your project becomes:
-
-production-like
-deployable
-portfolio-level
+~6 days
