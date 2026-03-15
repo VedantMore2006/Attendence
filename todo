@@ -1,319 +1,370 @@
-MASTER ROADMAP
-Phase 0  → Environment Setup
-Phase 1  → Face Recognition Engine
-Phase 2  → Face Registration System
-Phase 3  → Database Architecture
-Phase 4  → Attendance System Logic
-Phase 5  → Real-time Recognition Pipeline
-Phase 6  → API Backend
-Phase 7  → GUI / Dashboard
-Phase 8  → Raspberry Pi Optimization
-Phase 9  → Advanced Features
-Phase 0 — Environment Setup ⚙️
+FINAL LOCKED SYSTEM SPEC
 
-First we prepare the lab.
+Your attendance system will use:
+
+SCRFD            → face detection
+ArcFace          → 512D embeddings
+Cosine Similarity → matching
+SQLite           → database
+OpenCV           → webcam stream
+FastAPI          → backend
+
+Optimization layer:
+
+Face Tracking (KCF)
+Embedding Cache
+Recognition Cooldown
+
+Target system:
+
+Users: ~100
+Camera: USB webcam
+OS: Linux (Garuda)
+Future: Raspberry Pi deployment
+FINAL MASTER TODO LIST (LOCKED)
+
+This is the official project roadmap.
+
+No architectural changes after this.
+
+Phase 0 — Project Setup
+
+Goal: prepare development environment.
 
 Tasks
 
- Create project repository
+ Create project folder
 
- Create virtual environment
+smart_attendance/
+
+ Initialize Git repository
+
+ Create Python virtual environment
 
  Install dependencies
 
- Test webcam capture
+ Verify webcam access using OpenCV
 
- Verify InsightFace model loads
+ Download InsightFace models
 
-Tools
-Python
-OpenCV
-InsightFace
-NumPy
-FastAPI
-SQLite
-Expected output
+Dependencies
+python
+opencv-python
+insightface
+onnxruntime
+numpy
+fastapi
+uvicorn
+sqlalchemy
+sqlite3
+Deliverable
 Webcam feed opens successfully
-Phase 1 — Face Recognition Engine 🧠
+Phase 1 — Face Detection Engine
 
-This is the core brain.
-
-Everything else depends on this.
+Goal: detect faces from camera stream.
 
 Tasks
-Face Detection
 
  Load SCRFD detector
 
- Detect faces in frame
+ Capture webcam frames
+
+ Run face detection
 
  Draw bounding boxes
 
-Face Embedding
+ Verify detection stability
 
- Load ArcFace model
+Output Example
+Face detected
+Bounding box drawn
+Phase 2 — Face Embedding System
 
- Extract 512-dim embedding
-
- Verify embedding consistency
-
-Face Matching
-
- Implement cosine similarity
-
- Test embedding comparisons
-
- Tune similarity threshold
-
-Output
-Camera detects face
-Embedding extracted
-Matching working
-Phase 2 — Face Registration System 👤
-
-Users must register once.
+Goal: convert faces into 512-dimensional vectors.
 
 Tasks
 
- Capture multiple frames
+ Load ArcFace model
 
- Detect face
+ Crop detected face
 
- Extract embeddings
+ Extract embedding
 
- Average embeddings
+ Verify embedding size (512)
 
- Store user data
+ Validate embedding consistency
 
-Registration Flow
-User clicks register
-↓
-Camera captures 5 images
-↓
-Embeddings extracted
-↓
-Average embedding computed
-↓
-Stored in database
-Phase 3 — Database System 🗄
+Output Example
+Embedding vector length: 512
+Phase 3 — Cosine Similarity Matcher
 
-Now we persist data.
+Goal: compare two embeddings.
+
+Tasks
+
+ Implement cosine similarity function
+
+ Test embedding comparisons
+
+ Determine similarity threshold
+
+Threshold
+0.50
+Validation
+Same person similarity > 0.5
+Different person < 0.5
+Phase 4 — SQLite Database System
+
+Goal: persistent storage.
 
 Tasks
 
  Create SQLite database
 
- Define schema
+ Implement SQLAlchemy models
 
- Create ORM models
+ Create database tables
 
- Save embeddings
+ Insert test records
 
- Query embeddings
+ Query records
 
 Tables
-
-users
-
+USERS
 id
 name
 email
 created_at
-
-face_embeddings
-
+FACE_EMBEDDINGS
 id
 user_id
-embedding
+embedding_vector
 created_at
-
-attendance
-
+ATTENDANCE
 id
 user_id
 date
 time
 status
-Phase 4 — Attendance Logic 📅
+Deliverable
+Database operations working
+Phase 5 — Face Registration System
 
-This is the business logic layer.
-
-Tasks
-
- Match recognized user
-
- Check attendance today
-
- Mark attendance
-
- Prevent duplicates
-
- Implement cooldown
-
-Rules
-Only one attendance per day
-Recognition threshold must pass
-Duplicate detection prevented
-Phase 5 — Real-Time Recognition System 🎥
-
-Now we integrate everything.
+Goal: register new users.
 
 Tasks
 
- Continuous webcam stream
+ Create registration script
 
- Detect faces
+ Capture multiple face frames
 
  Extract embeddings
 
- Compare database embeddings
+ Compute average embedding
+
+ Store in database
+
+Registration Pipeline
+User enters name
+↓
+Camera captures 5 frames
+↓
+Embeddings extracted
+↓
+Average embedding computed
+↓
+Stored in SQLite
+Phase 6 — Embedding Cache System
+
+Goal: faster recognition.
+
+Tasks
+
+ Load embeddings at system startup
+
+ Store embeddings in memory
+
+ Update cache when new user registers
+
+Cache Example
+embeddings_cache = {
+    user_id : embedding_vector
+}
+Benefit
+No database queries during recognition
+Phase 7 — Face Tracking Optimization
+
+Goal: reduce CPU usage.
+
+Tasks
+
+ Implement KCF tracker
+
+ Detect faces every N frames
+
+ Track faces between detections
+
+Detection Interval
+DETECTION_INTERVAL = 10
+
+Pipeline:
+
+Detect → Track → Track → Track
+Phase 8 — Real-Time Recognition System
+
+Goal: identify users live.
+
+Tasks
+
+ Integrate detection
+
+ Integrate embedding extraction
+
+ Compare embeddings
 
  Identify user
 
- Trigger attendance
+ Display recognition result
 
-Output Example
-Face detected
+Example Output
 User: Vedant
+Confidence: 0.67
+Phase 9 — Attendance System
+
+Goal: mark attendance automatically.
+
+Tasks
+
+ Check if user already marked today
+
+ Insert attendance record
+
+ Prevent duplicate entries
+
+ Implement cooldown timer
+
+Cooldown
+COOLDOWN_TIME = 10 seconds
+Example
+Vedant detected
 Attendance marked
-Phase 6 — API Backend 🌐
 
-Now we make the system programmable.
+If repeated:
 
-Using FastAPI.
+Attendance already recorded
+Phase 10 — FastAPI Backend
+
+Goal: create API interface.
 
 Endpoints
+
 Register user
+
 POST /register
 
-Input
-
-name
-email
-face_images
 Recognize face
+
 POST /recognize
 
-Output
-
-user_id
-confidence
-attendance_status
 Attendance report
+
 GET /attendance/today
-List users
+
+User list
+
 GET /users
-Phase 7 — GUI Dashboard 🖥
+Phase 11 — Dashboard (Optional)
 
-Now we add UI.
+UI options:
 
-Option 1 (fastest)
+Quick
 Streamlit
-Option 2 (professional)
+Professional
 React + FastAPI
-GUI Features
+Features
 
 Live camera feed
 
-Register new user
+Register user
 
 Attendance dashboard
 
 User list
 
-Statistics
+Daily attendance log
 
-Phase 8 — Raspberry Pi Deployment 🍓
+Phase 12 — Raspberry Pi Deployment
 
-After system works on laptop.
+Goal: run system on Pi.
 
 Tasks
 
- Install dependencies on Pi
+ Install dependencies
 
- Optimize image resolution
+ Optimize resolution
 
- Reduce frame rate
+ Reduce FPS
 
- Enable auto start service
+ Configure startup script
 
- Connect Pi camera
+ Test USB webcam
 
-Performance tweaks
-640x480 resolution
-10 FPS camera
-face tracking enabled
-Phase 9 — Advanced Features (Optional) 🚀
+Optimized Settings
+Resolution: 640x480
+FPS: 10
+Detection interval: 15
+Phase 13 — Testing & Validation
 
-Now we make it industry level.
+Goal: verify system reliability.
 
-Liveness Detection
+Tests
 
-Prevent photo spoofing.
+ Multiple users recognition
 
-Detect:
+ Duplicate attendance prevention
 
-blink
-head movement
-depth cues
-Face Tracking
+ Low lighting performance
 
-Reduce CPU usage.
+ Camera angle robustness
 
-Instead of detecting every frame:
+ CPU usage monitoring
 
-Detect → Track → Track → Track
+FINAL PROJECT STRUCTURE
+smart_attendance/
 
-Using:
+camera/
+    webcam_stream.py
 
-SORT
-DeepSORT
-Vector Search
+detection/
+    scrfd_detector.py
 
-If users > 1000.
+embedding/
+    arcface_embedder.py
 
-Use:
+recognition/
+    face_matcher.py
 
-FAISS
-Development Task Checklist
+tracking/
+    face_tracker.py
 
-Here’s your daily progress checklist.
+database/
+    db.py
+    models.py
 
-Environment Setup
-[ ] Python environment
-[ ] Install dependencies
-[ ] Webcam working
+services/
+    attendance_service.py
 
-Recognition Engine
-[ ] SCRFD detection
-[ ] ArcFace embedding
-[ ] Cosine similarity
+api/
+    main.py
 
-Registration
-[ ] Capture frames
-[ ] Extract embeddings
-[ ] Store in DB
+utils/
+    similarity.py
 
-Database
-[ ] Users table
-[ ] Embedding storage
-[ ] Attendance table
+main.py
+Final Reality Check
 
-Recognition System
-[ ] Real-time pipeline
-[ ] Match user
-[ ] Mark attendance
+If you execute this roadmap cleanly, your project becomes:
 
-API
-[ ] Register endpoint
-[ ] Recognize endpoint
-[ ] Attendance endpoint
-
-GUI
-[ ] Live camera
-[ ] Register page
-[ ] Attendance dashboard
-
-Deployment
-[ ] Raspberry Pi install
-[ ] Performance tuning
+production-like
+deployable
+portfolio-level
