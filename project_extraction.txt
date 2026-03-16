@@ -1,0 +1,952 @@
+================================================================================
+PROJECT EXTRACTION REPORT
+================================================================================
+
+PROJECT STRUCTURE:
+--------------------------------------------------------------------------------
+
+Attendence/
+├── attendance.db
+├── database_cheatsheet.md
+├── main.py
+├── project_extract.py
+├── project_extraction.txt
+├── todo.txt
+├── api/
+│   └── routes.py
+├── attendance/
+│   ├── attendance_service.py
+│   └── register_user.py
+├── camera/
+│   └── camera_stream.py
+├── database/
+│   ├── db.py
+│   └── models.py
+├── recognition/
+│   └── matcher.py
+├── utils/
+│   └── config.py
+└── vision/
+    ├── aligner.py
+    ├── detector.py
+    └── embedder.py
+
+
+================================================================================
+FILE CONTENTS
+================================================================================
+
+
+================================================================================
+FILE: api/routes.py
+================================================================================
+
+
+
+================================================================================
+FILE: attendance/attendance_service.py
+================================================================================
+
+from datetime import datetime
+
+
+class AttendanceService:
+
+	def __init__(self, connection):
+		self.conn = connection
+
+	def has_attended_today(self, user_id):
+
+		today = datetime.now().date().isoformat()
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"""
+			SELECT * FROM attendance
+			WHERE user_id = ? AND date = ?
+			""",
+			(user_id, today)
+		)
+
+		result = cursor.fetchone()
+
+		return result is not None
+
+	def mark_attendance(self, user_id):
+
+		if self.has_attended_today(user_id):
+			return False
+
+		now = datetime.now()
+
+		date = now.date().isoformat()
+		time = now.time().strftime("%H:%M:%S")
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"""
+			INSERT INTO attendance (user_id, date, time)
+			VALUES (?, ?, ?)
+			""",
+			(user_id, date, time)
+		)
+
+		self.conn.commit()
+
+		return True
+
+
+================================================================================
+FILE: attendance/register_user.py
+================================================================================
+
+import time
+
+import cv2
+
+
+class UserRegistrar:
+
+    def __init__(self, camera, detector, aligner, embedder, db):
+        self.camera = camera
+        self.detector = detector
+        self.aligner = aligner
+        self.embedder = embedder
+        self.db = db
+
+    def register(self, name, max_embeddings=10, capture_time=30):
+
+        print(f"\nRegistering user: {name}")
+        print("Look at the camera and move slightly.\n")
+
+        user_id = self.db.add_user(name)
+
+        # 3-second countdown so user can get into position.
+        for i in range(3, 0, -1):
+            frame = self.camera.read_frame()
+            cv2.putText(
+                frame,
+                f"Starting in {i}...",
+                (30, 60),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.8,
+                (0, 255, 255),
+                3,
+            )
+            cv2.imshow("Registration", frame)
+            cv2.waitKey(1)
+            time.sleep(1)
+
+        print("Go!\n")
+
+        start_time = time.time()
+        embeddings_captured = 0
+
+        while True:
+
+            frame = self.camera.read_frame()
+
+            boxes = self.detector.detect_faces(frame)
+
+            for box in boxes:
+
+                face = self.aligner.align_face(frame, box)
+
+                if face is None:
+                    continue
+
+                embedding = self.embedder.get_embedding(face)
+
+                if embedding is None:
+                    continue
+
+                if embeddings_captured < max_embeddings:
+
+                    self.db.add_embedding(user_id, embedding)
+
+                    embeddings_captured += 1
+
+                    print(f"Captured {embeddings_captured}/{max_embeddings}")
+
+                    time.sleep(0.2)
+
+            cv2.imshow("Registration", frame)
+
+            if embeddings_captured >= max_embeddings:
+                break
+
+            if time.time() - start_time > capture_time:
+                break
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+
+        cv2.destroyWindow("Registration")
+        print("Registration complete.\n")
+
+
+================================================================================
+FILE: camera/camera_stream.py
+================================================================================
+
+import os
+
+os.environ["QT_QPA_PLATFORM"] = "xcb"
+
+import cv2
+
+
+class CameraStream:
+	def __init__(self, camera_index=2):
+		self.camera_index = camera_index
+		self.cap = None
+
+	def start(self):
+		"""Initialize the webcam."""
+		self.cap = cv2.VideoCapture(self.camera_index)
+
+		if not self.cap.isOpened():
+			raise RuntimeError(f"Unable to open camera at index {self.camera_index}")
+
+		# Optional settings for smoother capture.
+		self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+		self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+		self.cap.set(cv2.CAP_PROP_FPS, 30)
+
+	def read_frame(self):
+		"""Read a single frame from the camera."""
+		ret, frame = self.cap.read()
+
+		if not ret:
+			raise RuntimeError("Failed to read frame from camera")
+
+		return frame
+
+	def release(self):
+		"""Release camera resources."""
+		if self.cap:
+			self.cap.release()
+		cv2.destroyAllWindows()
+
+
+================================================================================
+FILE: database/db.py
+================================================================================
+
+import sqlite3
+from pathlib import Path
+
+
+class Database:
+	def __init__(self, db_path="attendance.db"):
+		self.db_path = db_path
+		self.conn = None
+
+	def connect(self):
+		self.conn = sqlite3.connect(self.db_path)
+		self.conn.row_factory = sqlite3.Row
+		return self.conn
+
+	def close(self):
+		if self.conn:
+			self.conn.close()
+
+
+================================================================================
+FILE: database/models.py
+================================================================================
+
+import sqlite3
+import numpy as np
+
+
+class FaceDatabase:
+	def __init__(self, connection):
+		self.conn = connection
+		self.create_tables()
+
+	def create_tables(self):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute("""
+		CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+		""")
+
+		cursor.execute("""
+		CREATE TABLE IF NOT EXISTS face_embeddings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			embedding BLOB,
+			FOREIGN KEY(user_id) REFERENCES users(id)
+		)
+		""")
+
+		cursor.execute("""
+		CREATE TABLE IF NOT EXISTS attendance (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			date TEXT,
+			time TEXT,
+			FOREIGN KEY(user_id) REFERENCES users(id)
+		)
+		""")
+
+		self.conn.commit()
+
+	def add_user(self, name):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"INSERT INTO users (name) VALUES (?)",
+			(name,)
+		)
+
+		self.conn.commit()
+
+		return cursor.lastrowid
+
+	def add_embedding(self, user_id, embedding):
+
+		embedding_blob = embedding.astype(np.float32).tobytes()
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"INSERT INTO face_embeddings (user_id, embedding) VALUES (?, ?)",
+			(user_id, embedding_blob)
+		)
+
+		self.conn.commit()
+
+	def get_all_embeddings(self):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute("""
+		SELECT users.name, face_embeddings.embedding
+		FROM face_embeddings
+		JOIN users ON users.id = face_embeddings.user_id
+		""")
+
+		rows = cursor.fetchall()
+
+		embeddings = {}
+
+		for row in rows:
+
+			name = row["name"]
+			embedding = np.frombuffer(row["embedding"], dtype=np.float32)
+
+			if name not in embeddings:
+				embeddings[name] = []
+
+			embeddings[name].append(embedding)
+
+		return embeddings
+
+	def get_user_id(self, name):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"SELECT id FROM users WHERE name = ?",
+			(name,)
+		)
+
+		row = cursor.fetchone()
+
+		if row:
+			return row["id"]
+
+		return None
+
+
+================================================================================
+FILE: main.py
+================================================================================
+
+import os
+import time
+from collections import defaultdict
+
+os.environ["QT_QPA_PLATFORM"] = "xcb"
+
+import cv2
+
+from attendance.attendance_service import AttendanceService
+from attendance.register_user import UserRegistrar
+from camera.camera_stream import CameraStream
+from database.db import Database
+from database.models import FaceDatabase
+from recognition.matcher import FaceMatcher
+from vision.aligner import FaceAligner
+from vision.detector import FaceDetector
+from vision.embedder import FaceEmbedder
+
+
+PERSISTENCE_TIME = 1.0
+DETECTION_INTERVAL = 3
+CACHE_TIME = 0.5
+
+
+def main():
+    # --- Database setup ---
+    database = Database()
+    conn = database.connect()
+    face_db = FaceDatabase(conn)
+    attendance_service = AttendanceService(conn)
+
+    # --- Pipeline components ---
+    camera = CameraStream(camera_index=2)
+    detector = FaceDetector()
+    aligner = FaceAligner()
+    embedder = FaceEmbedder()
+    matcher = FaceMatcher()
+
+    camera.start()
+
+    # Brief warm-up so the webcam exposure stabilises.
+    print("Camera warming up...")
+    for _ in range(10):
+        camera.read_frame()
+
+    # --- Registration ---
+    registrar = UserRegistrar(camera, detector, aligner, embedder, face_db)
+    name = input("Enter new user name to register (or press Enter to skip): ").strip()
+    if name:
+        registrar.register(name)
+
+    # --- Load all DB embeddings into matcher ---
+    matcher.known_embeddings = face_db.get_all_embeddings()
+    print(f"Loaded {sum(len(v) for v in matcher.known_embeddings.values())} embeddings "
+          f"for {len(matcher.known_embeddings)} user(s).\n")
+
+    # --- Runtime stabilizers ---
+    face_presence = defaultdict(lambda: {"first_seen": None, "last_seen": None})
+    frame_count = 0
+    last_name = None
+    last_score = -1.0
+    last_update = 0.0
+
+    # --- Recognition loop ---
+    while True:
+        frame = camera.read_frame()
+        frame_count += 1
+
+        boxes = detector.detect_faces(frame)
+
+        if not boxes:
+            for record in face_presence.values():
+                record["first_seen"] = None
+                record["last_seen"] = None
+            cv2.imshow("Recognition Test", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            continue
+
+        # Keep only the largest face to reduce false positives.
+        boxes = sorted(
+            boxes,
+            key=lambda b: (b[2] - b[0]) * (b[3] - b[1]),
+            reverse=True,
+        )
+        box = boxes[0]
+
+        x1, y1, x2, y2 = box
+
+        # Draw baseline box even on skipped frames.
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
+
+        if frame_count % DETECTION_INTERVAL != 0:
+            cv2.putText(
+                frame,
+                "Processing...",
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 0),
+                2,
+            )
+            cv2.imshow("Recognition Test", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            continue
+
+        face = aligner.align_face(frame, box)
+
+        if face is None:
+            cv2.imshow("Recognition Test", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            continue
+
+        embedding = embedder.get_embedding(face)
+
+        if embedding is None:
+            cv2.imshow("Recognition Test", frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+            continue
+
+        current_time = time.time()
+        if current_time - last_update < CACHE_TIME:
+            name, score = last_name, last_score
+        else:
+            name, score = matcher.match_embedding(embedding)
+            last_name = name
+            last_score = score
+            last_update = current_time
+
+        if name:
+            # Reset timer if the identity was not continuously visible.
+            if (
+                face_presence[name]["last_seen"] is not None
+                and current_time - face_presence[name]["last_seen"] > 0.5
+            ):
+                face_presence[name]["first_seen"] = None
+
+            if face_presence[name]["first_seen"] is None:
+                face_presence[name]["first_seen"] = current_time
+
+            face_presence[name]["last_seen"] = current_time
+
+            elapsed = current_time - face_presence[name]["first_seen"]
+
+            if elapsed < PERSISTENCE_TIME:
+                label = f"{name} (Hold Still {PERSISTENCE_TIME - elapsed:.1f}s)"
+                color = (0, 165, 255)
+            else:
+                user_id = face_db.get_user_id(name)
+
+                if user_id is None:
+                    label = f"{name} (User Missing)"
+                    color = (0, 165, 255)
+                elif attendance_service.has_attended_today(user_id):
+                    label = f"{name} (Already Marked)"
+                    color = (0, 255, 255)
+                else:
+                    attendance_service.mark_attendance(user_id)
+                    label = f"{name} (Attendance Marked)"
+                    color = (0, 255, 0)
+        else:
+            for record in face_presence.values():
+                record["first_seen"] = None
+                record["last_seen"] = None
+            label = "Unknown"
+            color = (0, 0, 255)
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(
+            frame,
+            label,
+            (x1, y1 - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            color,
+            2,
+        )
+
+        cv2.imshow("Recognition Test", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    camera.release()
+    database.close()
+
+
+if __name__ == "__main__":
+    main()
+
+
+================================================================================
+FILE: project_extract.py
+================================================================================
+
+#!/usr/bin/env python3
+# ============================================================================
+# PROJECT EXTRACTION UTILITY
+# ============================================================================
+# Purpose: Generate a comprehensive report of the entire Python codebase
+# Output: Single text file containing:
+#         1. Visual tree structure of project directories/files
+#         2. Complete content of all Python files
+#         3. Summary statistics
+# Usage: python Project_extract.py
+# Use Case: Code review, documentation, sharing codebase overview
+# ============================================================================
+
+"""
+Extract all Python files with their content and project structure into a single text file.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+
+def get_project_structure(root_dir, prefix="", max_depth=10, current_depth=0, ignore_dirs=None):
+    """
+    Generate a text representation of the project structure.
+    
+    Creates a tree-style visualization of directories and files.
+    Recursively traverses subdirectories while respecting depth limits.
+    
+    Args:
+        root_dir: Starting directory path
+        prefix: String prefix for tree indentation
+        max_depth: Maximum recursion depth to prevent infinite loops
+        current_depth: Current recursion level
+        ignore_dirs: Set of directory names to skip
+    
+    Returns:
+        String containing formatted directory tree
+    """
+    if ignore_dirs is None:
+        ignore_dirs = {".git", "__pycache__", ".pytest_cache", "*.egg-info", ".venv", "venv", "env"}
+    
+    if current_depth >= max_depth:
+        return ""
+    
+    structure = ""
+    try:
+        items = sorted(os.listdir(root_dir))
+    except PermissionError:
+        return ""
+    
+    dirs = []
+    files = []
+    
+    for item in items:
+        # Skip hidden files/dirs and common ignore patterns
+        if item.startswith("."):
+            continue
+        if item in ignore_dirs or any(item.endswith(x.replace("*", "")) for x in ignore_dirs if "*" in x):
+            continue
+        
+        item_path = os.path.join(root_dir, item)
+        if os.path.isdir(item_path):
+            dirs.append(item)
+        else:
+            files.append(item)
+    
+    # Add files first
+    for i, file in enumerate(files):
+        is_last_file = (i == len(files) - 1) and len(dirs) == 0
+        structure += f"{prefix}{'└── ' if is_last_file else '├── '}{file}\n"
+    
+    # Add directories
+    for i, dir_name in enumerate(dirs):
+        is_last = i == len(dirs) - 1
+        structure += f"{prefix}{'└── ' if is_last else '├── '}{dir_name}/\n"
+        
+        dir_path = os.path.join(root_dir, dir_name)
+        extension = "    " if is_last else "│   "
+        structure += get_project_structure(dir_path, prefix + extension, max_depth, current_depth + 1, ignore_dirs)
+    
+    return structure
+
+
+def extract_python_files(root_dir, output_file):
+    """
+    Extract all Python files and their content.
+    
+    Main extraction function that:
+    1. Walks through directory tree to find all .py files
+    2. Generates project structure visualization
+    3. Writes formatted output with all file contents
+    4. Provides summary statistics
+    
+    Args:
+        root_dir: Root directory to scan
+        output_file: Path to output text file
+    """
+    py_files = []
+    
+    # Collect all Python files
+    for root, dirs, files in os.walk(root_dir):
+        # Skip certain directories
+        dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", ".pytest_cache", ".venv", "venv", "env"}]
+        
+        for file in files:
+            if file.endswith(".py"):
+                file_path = os.path.join(root, file)
+                py_files.append(file_path)
+    
+    # Sort files for consistent output
+    py_files.sort()
+    
+    # Write to output file
+    with open(output_file, "w", encoding="utf-8") as out:
+        # Header
+        out.write("=" * 80 + "\n")
+        out.write("PROJECT EXTRACTION REPORT\n")
+        out.write("=" * 80 + "\n\n")
+        
+        # Project Structure
+        out.write("PROJECT STRUCTURE:\n")
+        out.write("-" * 80 + "\n\n")
+        out.write(f"{os.path.basename(root_dir)}/\n")
+        out.write(get_project_structure(root_dir))
+        out.write("\n\n")
+        
+        # File Contents
+        out.write("=" * 80 + "\n")
+        out.write("FILE CONTENTS\n")
+        out.write("=" * 80 + "\n\n")
+        
+        for file_path in py_files:
+            # Calculate relative path
+            rel_path = os.path.relpath(file_path, root_dir)
+            
+            # Write file header
+            out.write(f"\n{'=' * 80}\n")
+            out.write(f"FILE: {rel_path}\n")
+            out.write(f"{'=' * 80}\n\n")
+            
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    out.write(content)
+            except Exception as e:
+                out.write(f"[ERROR] Could not read file: {str(e)}\n")
+            
+            out.write("\n")
+        
+        # Summary
+        out.write("\n" + "=" * 80 + "\n")
+        out.write(f"SUMMARY: {len(py_files)} Python files extracted\n")
+        out.write("=" * 80 + "\n")
+    
+    print(f"✓ Extraction complete!")
+    print(f"✓ Total Python files: {len(py_files)}")
+    print(f"✓ Output saved to: {output_file}")
+    print(f"✓ File size: {os.path.getsize(output_file) / 1024:.2f} KB")
+
+
+if __name__ == "__main__":
+    # Get project root (current directory)
+    project_root = os.getcwd()
+    
+    # Output file
+    output_filename = "project_extraction.txt"
+    output_path = os.path.join(project_root, output_filename)
+    
+    print(f"Extracting Python files from: {project_root}")
+    print(f"Output file: {output_path}\n")
+    
+    extract_python_files(project_root, output_path)
+
+
+================================================================================
+FILE: recognition/matcher.py
+================================================================================
+
+import numpy as np
+
+
+class FaceMatcher:
+    def __init__(self, threshold=0.55):
+        self.threshold = threshold
+
+        # name -> list of embeddings
+        self.known_embeddings = {}
+
+    def add_embedding(self, name, embedding):
+        """
+        Add a new embedding for a user.
+        """
+        if name not in self.known_embeddings:
+            self.known_embeddings[name] = []
+
+        self.known_embeddings[name].append(embedding)
+
+    def cosine_similarity(self, emb1, emb2):
+        emb1 = np.array(emb1)
+        emb2 = np.array(emb2)
+
+        return np.dot(emb1, emb2) / (
+            np.linalg.norm(emb1) * np.linalg.norm(emb2)
+        )
+
+    def match_embedding(self, new_embedding):
+
+        best_user = None
+        best_score = -1
+
+        for name, embeddings in self.known_embeddings.items():
+
+            for stored_embedding in embeddings:
+
+                similarity = self.cosine_similarity(
+                    new_embedding,
+                    stored_embedding
+                )
+
+                if similarity > best_score:
+                    best_score = similarity
+                    best_user = name
+
+        if best_score >= self.threshold:
+            return best_user, best_score
+
+        return None, best_score
+
+
+================================================================================
+FILE: utils/config.py
+================================================================================
+
+
+
+================================================================================
+FILE: vision/aligner.py
+================================================================================
+
+import cv2
+
+
+class FaceAligner:
+	def __init__(self, target_size=(112, 112)):
+		self.target_size = target_size
+
+	def align_face(self, frame, bbox):
+		"""
+		Input:
+			frame -> original image
+			bbox  -> [x1, y1, x2, y2]
+
+		Output:
+			aligned_face (112x112)
+		"""
+
+		h, w, _ = frame.shape
+		x1, y1, x2, y2 = bbox
+
+		# Safety clamp (important).
+		x1 = max(0, x1)
+		y1 = max(0, y1)
+		x2 = min(w, x2)
+		y2 = min(h, y2)
+
+		# Crop face.
+		face = frame[y1:y2, x1:x2]
+
+		if face.size == 0:
+			return None
+
+		# Resize to ArcFace input size.
+		aligned_face = cv2.resize(face, self.target_size)
+
+		return aligned_face
+
+
+================================================================================
+FILE: vision/detector.py
+================================================================================
+
+import cv2
+import mediapipe as mp
+
+
+class FaceDetector:
+	def __init__(self, confidence=0.5):
+		self.mp_face_detection = mp.solutions.face_detection
+		self.detector = self.mp_face_detection.FaceDetection(
+			model_selection=0,
+			min_detection_confidence=confidence,
+		)
+
+	def detect_faces(self, frame):
+		"""
+		Input: frame (BGR image from OpenCV)
+		Output: list of bounding boxes [x1, y1, x2, y2]
+		"""
+
+		h, w, _ = frame.shape
+
+		# Convert BGR -> RGB (MediaPipe requirement)
+		rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+		results = self.detector.process(rgb_frame)
+
+		boxes = []
+
+		if results.detections:
+			for detection in results.detections:
+				bbox = detection.location_data.relative_bounding_box
+
+				x1 = int(bbox.xmin * w)
+				y1 = int(bbox.ymin * h)
+				width = int(bbox.width * w)
+				height = int(bbox.height * h)
+
+				x2 = x1 + width
+				y2 = y1 + height
+
+				boxes.append([x1, y1, x2, y2])
+
+		return boxes
+
+
+================================================================================
+FILE: vision/embedder.py
+================================================================================
+
+from pathlib import Path
+
+import cv2
+import numpy as np
+from insightface import model_zoo
+
+
+class FaceEmbedder:
+	def __init__(self):
+		"""
+		Initialize ArcFace recognition model for direct feature extraction.
+		"""
+		model_path = Path.home() / ".insightface" / "models" / "buffalo_l" / "w600k_r50.onnx"
+		if not model_path.exists():
+			raise RuntimeError(f"ArcFace model not found at {model_path}")
+
+		self.recognizer = model_zoo.get_model(str(model_path))
+		# CPU mode is stable on this environment (CUDA provider is unavailable).
+		self.recognizer.prepare(ctx_id=-1)
+
+	def get_embedding(self, face_image):
+		"""
+		Input:
+			face_image -> cropped face (112x112 BGR image)
+
+		Output:
+			embedding -> 512 dimensional vector
+		"""
+		if face_image is None or face_image.size == 0:
+			return None
+
+		# ArcFace ONNX expects 112x112 input.
+		resized = cv2.resize(face_image, (112, 112))
+		embedding = self.recognizer.get_feat(resized)
+
+		if embedding is None:
+			return None
+
+		embedding = np.asarray(embedding).squeeze()
+		if embedding.ndim != 1:
+			return None
+
+		return embedding
+
+
+================================================================================
+SUMMARY: 13 Python files extracted
+================================================================================
