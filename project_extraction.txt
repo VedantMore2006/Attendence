@@ -6,6 +6,7 @@ PROJECT STRUCTURE:
 --------------------------------------------------------------------------------
 
 Attendence/
+├── README.md
 ├── attendance.db
 ├── database_cheatsheet.md
 ├── main.py
@@ -19,6 +20,9 @@ Attendence/
 │   └── register_user.py
 ├── camera/
 │   └── camera_stream.py
+├── dashboard/
+│   ├── app.py
+│   └── attendance.db
 ├── database/
 │   ├── db.py
 │   └── models.py
@@ -199,7 +203,7 @@ import cv2
 
 
 class CameraStream:
-	def __init__(self, camera_index=2):
+	def __init__(self, camera_index=0):
 		self.camera_index = camera_index
 		self.cap = None
 
@@ -229,6 +233,95 @@ class CameraStream:
 		if self.cap:
 			self.cap.release()
 		cv2.destroyAllWindows()
+
+
+================================================================================
+FILE: dashboard/app.py
+================================================================================
+
+import sqlite3
+
+import pandas as pd
+import streamlit as st
+
+
+st.title("Smart Attendance Dashboard")
+
+conn = sqlite3.connect("attendance.db")
+
+menu = st.sidebar.selectbox(
+    "Menu",
+    [
+        "Register User",
+        "Users",
+        "Attendance",
+        "Export",
+    ],
+)
+
+# REGISTER USER
+if menu == "Register User":
+
+    st.header("Register New Student")
+
+    name = st.text_input("Student Name")
+
+    if st.button("Register"):
+        if name.strip():
+            st.write("Run registration from main system")
+        else:
+            st.warning("Please enter a student name.")
+
+# USER LIST
+elif menu == "Users":
+
+    st.header("Registered Users")
+
+    df = pd.read_sql_query(
+        "SELECT * FROM users",
+        conn,
+    )
+
+    st.dataframe(df)
+
+# ATTENDANCE TABLE
+elif menu == "Attendance":
+
+    st.header("Attendance Records")
+
+    df = pd.read_sql_query(
+        """
+        SELECT users.name, attendance.date, attendance.time
+        FROM attendance
+        JOIN users ON users.id = attendance.user_id
+        """,
+        conn,
+    )
+
+    st.dataframe(df)
+
+# EXPORT REPORT
+elif menu == "Export":
+
+    st.header("Export Attendance Report")
+
+    df = pd.read_sql_query(
+        """
+        SELECT users.name, attendance.date, attendance.time
+        FROM attendance
+        JOIN users ON users.id = attendance.user_id
+        """,
+        conn,
+    )
+
+    csv = df.to_csv(index=False)
+
+    st.download_button(
+        label="Download CSV",
+        data=csv,
+        file_name="attendance_report.csv",
+        mime="text/csv",
+    )
 
 
 ================================================================================
@@ -405,7 +498,7 @@ def main():
     attendance_service = AttendanceService(conn)
 
     # --- Pipeline components ---
-    camera = CameraStream(camera_index=2)
+    camera = CameraStream(camera_index=0)
     detector = FaceDetector()
     aligner = FaceAligner()
     embedder = FaceEmbedder()
@@ -435,6 +528,8 @@ def main():
     last_name = None
     last_score = -1.0
     last_update = 0.0
+    last_label = "Detecting..."
+    last_color = (255, 255, 0)
 
     # --- Recognition loop ---
     while True:
@@ -447,6 +542,8 @@ def main():
             for record in face_presence.values():
                 record["first_seen"] = None
                 record["last_seen"] = None
+            last_label = "No Face"
+            last_color = (0, 0, 255)
             cv2.imshow("Recognition Test", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -468,11 +565,11 @@ def main():
         if frame_count % DETECTION_INTERVAL != 0:
             cv2.putText(
                 frame,
-                "Processing...",
+                f"{last_label} | Processing...",
                 (x1, y1 - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
-                (255, 255, 0),
+                last_color,
                 2,
             )
             cv2.imshow("Recognition Test", frame)
@@ -484,6 +581,8 @@ def main():
         face = aligner.align_face(frame, box)
 
         if face is None:
+            last_label = "Face Not Clear"
+            last_color = (0, 165, 255)
             cv2.imshow("Recognition Test", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -492,6 +591,8 @@ def main():
         embedding = embedder.get_embedding(face)
 
         if embedding is None:
+            last_label = "Embedding Failed"
+            last_color = (0, 165, 255)
             cv2.imshow("Recognition Test", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
@@ -543,6 +644,9 @@ def main():
                 record["last_seen"] = None
             label = "Unknown"
             color = (0, 0, 255)
+
+        last_label = label
+        last_color = color
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(
@@ -948,5 +1052,5 @@ class FaceEmbedder:
 
 
 ================================================================================
-SUMMARY: 13 Python files extracted
+SUMMARY: 14 Python files extracted
 ================================================================================

@@ -2,4 +2,5 @@ __pycache__/
 *.pyc
 .env
 venv/
-database.db
+attendance.db
+*.zip

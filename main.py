@@ -30,7 +30,7 @@ def main():
     attendance_service = AttendanceService(conn)
 
     # --- Pipeline components ---
-    camera = CameraStream(camera_index=2)
+    camera = CameraStream(camera_index=0)
     detector = FaceDetector()
     aligner = FaceAligner()
     embedder = FaceEmbedder()

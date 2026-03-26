@@ -2,32 +2,19 @@
 
 Real-time face recognition attendance system built with OpenCV, MediaPipe BlazeFace, ArcFace (InsightFace), SQLite, and Streamlit.
 
-This project performs:
+The system performs:
 - live face detection from webcam
 - face alignment and embedding extraction
 - identity matching against stored embeddings
-- once-per-day attendance marking with duplicate prevention
+- once-per-day attendance marking
 - dashboard-based attendance viewing and CSV export
 
-## Features
-
-- Real-time webcam recognition pipeline
-- Multi-embedding user registration (default 10 embeddings)
-- Cosine-similarity matching with configurable threshold
-- SQLite persistence for users, embeddings, and attendance
-- Daily duplicate prevention via attendance rules
-- Runtime stabilization:
-  - largest-face-only processing
-  - frame interval processing
-  - short-term matching cache
-  - 1-second identity persistence before marking attendance
-- Streamlit dashboard for users, attendance, and exports
-
-## Project Structure
+## 1. Project Structure
 
 ```text
 Attendence/
 ├── main.py
+├── requirements.txt
 ├── attendance.db
 ├── README.md
 ├── database_cheatsheet.md
@@ -53,143 +40,102 @@ Attendence/
     └── embedder.py
 ```
 
-## Tech Stack
+## 2. Requirements
 
-- Python 3.10+
-- OpenCV
-- MediaPipe (BlazeFace)
-- InsightFace ArcFace
-- ONNX Runtime
-- SQLite
-- Streamlit
-- Pandas
+- Python 3.10 or newer
+- Webcam
+- ArcFace model file at:
+  - `~/.insightface/models/buffalo_l/w600k_r50.onnx`
 
-## Requirements
-
-Your current `requirements.txt` includes core CV/backend packages. For full project usage (dashboard included), ensure these are installed:
+Install Python packages:
 
 ```bash
 pip install -r requirements.txt
-pip install streamlit pandas
 ```
 
-Recommended `requirements.txt` additions for dashboard support:
-- `streamlit`
-- `pandas`
+## 3. Cross-Platform Notes (Linux and Windows)
 
-## Environment Setup
+This project currently sets:
 
-### 1. Clone/Open Project
-
-```bash
-cd /home/vedant/Attendence
+```python
+os.environ["QT_QPA_PLATFORM"] = "xcb"
 ```
 
-### 2. Create and Activate Environment
+in:
+- `main.py`
+- `camera/camera_stream.py`
 
-Conda example:
+Important:
+- `xcb` is a Linux Qt platform plugin.
+- On Linux, this can help OpenCV Qt window behavior.
+- On Windows, `xcb` has no meaning and may cause startup issues.
+
+For Windows users:
+- remove or comment these lines, or
+- set the variable only on Linux (recommended in future code update).
+
+## 4. Environment Setup
+
+### Option A: Conda (recommended)
+
+Linux/macOS:
 
 ```bash
-conda create -n attendence python=3.10 -y
-conda activate attendence
-```
-
-### 3. Install Dependencies
-
-```bash
+conda create -n project_env python=3.10 -y
+conda activate project_env
 pip install -r requirements.txt
-pip install streamlit pandas
 ```
 
-## Run the Main Attendance System
+Windows (PowerShell or Anaconda Prompt):
+
+```powershell
+conda create -n project_env python=3.10 -y
+conda activate project_env
+pip install -r requirements.txt
+```
+
+### Option B: venv
+
+Linux/macOS:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Windows (PowerShell):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+Windows (cmd):
+
+```bat
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+```
+
+## 5. Run Main Attendance App
 
 ```bash
 python main.py
 ```
 
-### What Happens at Startup
-
+Startup sequence:
 1. Connects to `attendance.db`
-2. Ensures required tables exist (`users`, `face_embeddings`, `attendance`)
-3. Starts camera at index `2`
-4. Performs warmup frame reads
-5. Prompts:
+2. Creates tables if missing: `users`, `face_embeddings`, `attendance`
+3. Starts camera stream
+4. Warms up camera frames
+5. Prompts for optional registration
+6. Loads known embeddings
+7. Starts recognition and attendance loop
 
-```text
-Enter new user name to register (or press Enter to skip):
-```
-
-6. If name is provided:
-   - shows 3-second countdown
-   - captures embeddings
-   - stores user + embeddings in DB
-7. Loads all stored embeddings into matcher
-8. Starts recognition loop and attendance marking
-
-## Registration Flow
-
-Implemented in `attendance/register_user.py`.
-
-Default behavior:
-- `max_embeddings=10`
-- `capture_time=30` seconds
-- short pause between captures to improve variation
-
-Registration works best when the user:
-- faces camera directly
-- slightly changes expression/angle
-- stays within frame during capture
-
-## Recognition + Attendance Logic
-
-Implemented in `main.py` using:
-- `vision/detector.py`
-- `vision/aligner.py`
-- `vision/embedder.py`
-- `recognition/matcher.py`
-- `attendance/attendance_service.py`
-
-### Stabilization Controls
-
-- `PERSISTENCE_TIME = 1.0`
-  - identity must remain stable for 1 second before attendance marking
-- `DETECTION_INTERVAL = 3`
-  - heavy embedding/matching runs every 3rd frame
-- `CACHE_TIME = 0.5`
-  - reuses recent match briefly to reduce redundant matching
-- largest face only
-  - reduces background false detections
-
-### Attendance Labels
-
-- `Name (Hold Still 0.xs)`
-- `Name (Attendance Marked)`
-- `Name (Already Marked)`
-- `Unknown`
-- `Face Not Clear`
-- `Embedding Failed`
-
-## Database Schema
-
-Created automatically by `database/models.py`.
-
-### users
-- `id` INTEGER PRIMARY KEY
-- `name` TEXT
-- `created_at` TIMESTAMP
-
-### face_embeddings
-- `id` INTEGER PRIMARY KEY
-- `user_id` INTEGER (FK users.id)
-- `embedding` BLOB (float32 vector bytes)
-
-### attendance
-- `id` INTEGER PRIMARY KEY
-- `user_id` INTEGER (FK users.id)
-- `date` TEXT (ISO date)
-- `time` TEXT (HH:MM:SS)
-
-## Dashboard
+## 6. Dashboard
 
 Run:
 
@@ -198,98 +144,66 @@ streamlit run dashboard/app.py
 ```
 
 Dashboard sections:
-- Register User (placeholder; registration runs through `main.py`)
-- Users table
-- Attendance table
-- Export CSV report
+- Register User (placeholder message)
+- Users
+- Attendance
+- Export CSV
 
-## Export Report
+## 7. Core Runtime Settings
 
-From dashboard `Export` menu:
-- Downloads `attendance_report.csv`
-- Columns: `name, date, time`
+Configured in `main.py`:
 
-## Tuning Guide
+- `PERSISTENCE_TIME = 1.0`
+- `DETECTION_INTERVAL = 3`
+- `CACHE_TIME = 0.5`
 
-If recognition appears slow or too strict:
-- lower `DETECTION_INTERVAL` from `3` to `2`
-- lower `PERSISTENCE_TIME` from `1.0` to `0.7`
-- lower matcher threshold in `recognition/matcher.py` from `0.55` to `0.50`
+Behavior:
+- processes largest face first
+- evaluates embedding every few frames
+- requires stable identity duration before marking attendance
 
-If false positives increase:
-- raise matcher threshold to `0.60`
-- keep `PERSISTENCE_TIME` at `1.0` or higher
+## 8. Common Issues
 
-## Common Issues and Fixes
+### Camera not opening
 
-### 1. Stuck on "Processing..."
+- try camera index `0`, `1`, or `2`
+- ensure no other app is using the webcam
 
-This usually means frame skipping is active and heavy recognition runs every N frames.
+### ArcFace model missing
 
-Fix/tune:
-- set `DETECTION_INTERVAL = 2` in `main.py`
+Expected path:
 
-### 2. Camera not opening
-
-- confirm camera index (project defaults to `2`)
-- test alternate indexes in `camera/camera_stream.py` (`0`, `1`, `2`)
-
-### 3. CUDA provider warning in ONNX Runtime
-
-Current setup uses CPU fallback. This is expected unless CUDA runtime is installed and configured.
-
-### 4. Qt font/style warnings
-
-These are non-fatal UI warnings from OpenCV Qt backend and do not block recognition.
-
-### 5. Embedding failed
-
-Can happen with poor crop/pose/blur. Improve lighting, keep face centered, and avoid fast motion.
-
-## Useful Files
-
-- Main pipeline: `main.py`
-- Registration module: `attendance/register_user.py`
-- Attendance rules: `attendance/attendance_service.py`
-- Matcher: `recognition/matcher.py`
-- DB layer: `database/db.py`, `database/models.py`
-- Dashboard: `dashboard/app.py`
-- DB operations cheat sheet: `database_cheatsheet.md`
-
-## Quick Start (Minimal)
-
-```bash
-cd /home/vedant/Attendence
-conda activate attendence
-pip install -r requirements.txt
-pip install streamlit pandas
-python main.py
+```text
+~/.insightface/models/buffalo_l/w600k_r50.onnx
 ```
 
-Dashboard in another terminal:
+If missing, the embedder raises a runtime error.
 
-```bash
-conda activate attendence
-streamlit run dashboard/app.py
-```
+### Windows fails due to Qt platform
 
-## Roadmap Status (Implemented)
+If OpenCV window crashes on startup:
+- remove `QT_QPA_PLATFORM=xcb` lines from `main.py` and `camera/camera_stream.py`
 
-- Camera streaming
-- Face detection (BlazeFace)
-- Face alignment/crop
-- ArcFace embeddings
-- Face matching (multi-embedding)
-- SQLite persistence
-- Registration workflow
-- Attendance marking with duplicate prevention
-- Runtime stabilization
-- Dashboard + CSV export
+### Recognition too strict or too slow
 
-## Next Suggested Enhancements
+- reduce detection interval for faster updates
+- tune matcher threshold in `recognition/matcher.py`
 
-- API endpoints in `api/routes.py`
-- User delete/edit controls in dashboard
-- Attendance filters by date range
-- Liveness checks for anti-spoofing
-- Optional tracking (KCF) for further CPU reduction
+## 9. Dependency List
+
+The current `requirements.txt` includes:
+- numpy
+- opencv-python
+- mediapipe
+- insightface
+- onnxruntime
+- streamlit
+- pandas
+
+## 10. Next Improvements
+
+- make Qt platform selection OS-aware in code
+- add API endpoints in `api/routes.py`
+- add user edit/delete operations in dashboard
+- add date-range attendance filters
+- add liveness checks for anti-spoofing
