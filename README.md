@@ -2,6 +2,8 @@
 
 Real-time face recognition attendance system built with OpenCV, MediaPipe BlazeFace, ArcFace (InsightFace), SQLite, and Streamlit.
 
+This prototype now includes a FastAPI backend so the frontend can connect over HTTP instead of reading SQLite directly.
+
 The system performs:
 - live face detection from webcam
 - face alignment and embedding extraction
@@ -143,13 +145,43 @@ Run:
 streamlit run dashboard/app.py
 ```
 
+The dashboard is API-connected. By default it calls:
+
+```text
+http://127.0.0.1:8000/api
+```
+
+You can change this from the sidebar in the Streamlit UI.
+
+## 7. FastAPI Backend
+
+Run the API server:
+
+```bash
+uvicorn api.server:app --reload --host 0.0.0.0 --port 8000
+```
+
+Available endpoints:
+- `GET /api/health`
+- `POST /api/users`
+- `GET /api/users`
+- `POST /api/attendance/mark`
+- `GET /api/attendance`
+- `GET /api/stats/today`
+
+Interactive docs:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
 Dashboard sections:
 - Register User (placeholder message)
 - Users
 - Attendance
 - Export CSV
 
-## 7. Core Runtime Settings
+## 8. Core Runtime Settings
 
 Configured in `main.py`:
 
@@ -162,7 +194,7 @@ Behavior:
 - evaluates embedding every few frames
 - requires stable identity duration before marking attendance
 
-## 8. Common Issues
+## 9. Common Issues
 
 ### Camera not opening
 
@@ -189,7 +221,7 @@ If OpenCV window crashes on startup:
 - reduce detection interval for faster updates
 - tune matcher threshold in `recognition/matcher.py`
 
-## 9. Dependency List
+## 10. Dependency List
 
 The current `requirements.txt` includes:
 - numpy
@@ -200,7 +232,17 @@ The current `requirements.txt` includes:
 - streamlit
 - pandas
 
-## 10. Next Improvements
+## 11. Prototype Run Order
+
+For a full demo flow, start components in this order:
+
+1. API server: `uvicorn api.server:app --reload --host 0.0.0.0 --port 8000`
+2. Dashboard: `streamlit run dashboard/app.py`
+3. Face recognition runtime (camera): `python main.py`
+
+The recognition runtime and dashboard now write/read through the same database, and the dashboard communicates through the API.
+
+## 12. Next Improvements
 
 - make Qt platform selection OS-aware in code
 - add API endpoints in `api/routes.py`
