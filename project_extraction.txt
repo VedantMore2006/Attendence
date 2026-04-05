@@ -10,11 +10,14 @@ Attendence/
 ├── attendance.db
 ├── database_cheatsheet.md
 ├── main.py
+├── preview.html
 ├── project_extract.py
 ├── project_extraction.txt
+├── requirements.txt
 ├── todo.txt
 ├── api/
-│   └── routes.py
+│   ├── routes.py
+│   └── server.py
 ├── attendance/
 │   ├── attendance_service.py
 │   └── register_user.py
@@ -45,6 +48,246 @@ FILE CONTENTS
 FILE: api/routes.py
 ================================================================================
 
+import sqlite3
+from datetime import datetime
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from attendance.attendance_service import AttendanceService
+from database.models import FaceDatabase
+
+
+DB_PATH = "attendance.db"
+
+router = APIRouter(tags=["attendance"])
+
+
+class CreateUserRequest(BaseModel):
+	name: str = Field(min_length=1, max_length=120)
+
+
+class UserResponse(BaseModel):
+	id: int
+	name: str
+	created_at: str
+
+
+class MarkAttendanceRequest(BaseModel):
+	user_id: int
+
+
+class AttendanceRecordResponse(BaseModel):
+	id: int
+	user_id: int
+	name: str
+	date: str
+	time: str
+
+
+class StatsTodayResponse(BaseModel):
+	date: str
+	total_users: int
+	present_users: int
+	attendance_percent: float
+
+
+def get_connection():
+	conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+	conn.row_factory = sqlite3.Row
+	try:
+		yield conn
+	finally:
+		conn.close()
+
+
+def init_database() -> None:
+	conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+	try:
+		FaceDatabase(conn)
+	finally:
+		conn.close()
+
+
+@router.get("/health")
+def health() -> dict:
+	return {"status": "ok", "service": "smart-attendance-api"}
+
+
+@router.post("/users", response_model=UserResponse)
+def create_user(payload: CreateUserRequest, conn=Depends(get_connection)):
+	face_db = FaceDatabase(conn)
+	cleaned_name = payload.name.strip()
+
+	if not cleaned_name:
+		raise HTTPException(status_code=400, detail="Name cannot be empty")
+
+	user_id = face_db.add_user(cleaned_name)
+
+	cursor = conn.cursor()
+	cursor.execute(
+		"SELECT id, name, created_at FROM users WHERE id = ?",
+		(user_id,),
+	)
+	row = cursor.fetchone()
+
+	return UserResponse(
+		id=row["id"],
+		name=row["name"],
+		created_at=row["created_at"],
+	)
+
+
+@router.get("/users", response_model=list[UserResponse])
+def list_users(conn=Depends(get_connection)):
+	cursor = conn.cursor()
+	cursor.execute(
+		"""
+		SELECT id, name, created_at
+		FROM users
+		ORDER BY id DESC
+		"""
+	)
+	rows = cursor.fetchall()
+
+	return [
+		UserResponse(id=row["id"], name=row["name"], created_at=row["created_at"])
+		for row in rows
+	]
+
+
+@router.post("/attendance/mark")
+def mark_attendance(payload: MarkAttendanceRequest, conn=Depends(get_connection)):
+	cursor = conn.cursor()
+	cursor.execute("SELECT id, name FROM users WHERE id = ?", (payload.user_id,))
+	user_row = cursor.fetchone()
+
+	if user_row is None:
+		raise HTTPException(status_code=404, detail="User not found")
+
+	attendance_service = AttendanceService(conn)
+	marked = attendance_service.mark_attendance(payload.user_id)
+
+	if not marked:
+		return {
+			"status": "already_marked",
+			"user_id": payload.user_id,
+			"name": user_row["name"],
+			"date": datetime.now().date().isoformat(),
+		}
+
+	return {
+		"status": "marked",
+		"user_id": payload.user_id,
+		"name": user_row["name"],
+		"date": datetime.now().date().isoformat(),
+	}
+
+
+@router.get("/attendance", response_model=list[AttendanceRecordResponse])
+def list_attendance(
+	date: Optional[str] = Query(default=None, description="YYYY-MM-DD"),
+	conn=Depends(get_connection),
+):
+	cursor = conn.cursor()
+
+	if date:
+		cursor.execute(
+			"""
+			SELECT attendance.id, attendance.user_id, users.name, attendance.date, attendance.time
+			FROM attendance
+			JOIN users ON users.id = attendance.user_id
+			WHERE attendance.date = ?
+			ORDER BY attendance.date DESC, attendance.time DESC
+			""",
+			(date,),
+		)
+	else:
+		cursor.execute(
+			"""
+			SELECT attendance.id, attendance.user_id, users.name, attendance.date, attendance.time
+			FROM attendance
+			JOIN users ON users.id = attendance.user_id
+			ORDER BY attendance.date DESC, attendance.time DESC
+			"""
+		)
+
+	rows = cursor.fetchall()
+
+	return [
+		AttendanceRecordResponse(
+			id=row["id"],
+			user_id=row["user_id"],
+			name=row["name"],
+			date=row["date"],
+			time=row["time"],
+		)
+		for row in rows
+	]
+
+
+@router.get("/stats/today", response_model=StatsTodayResponse)
+def get_today_stats(conn=Depends(get_connection)):
+	today = datetime.now().date().isoformat()
+	cursor = conn.cursor()
+
+	cursor.execute("SELECT COUNT(*) AS total_users FROM users")
+	total_users = cursor.fetchone()["total_users"]
+
+	cursor.execute(
+		"""
+		SELECT COUNT(DISTINCT user_id) AS present_users
+		FROM attendance
+		WHERE date = ?
+		""",
+		(today,),
+	)
+	present_users = cursor.fetchone()["present_users"]
+
+	attendance_percent = 0.0
+	if total_users > 0:
+		attendance_percent = round((present_users / total_users) * 100, 2)
+
+	return StatsTodayResponse(
+		date=today,
+		total_users=total_users,
+		present_users=present_users,
+		attendance_percent=attendance_percent,
+	)
+
+
+================================================================================
+FILE: api/server.py
+================================================================================
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from api.routes import init_database, router
+
+
+app = FastAPI(
+    title="Smart Attendance API",
+    version="1.0.0",
+    description="Prototype-ready backend for user registration and attendance tracking.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    init_database()
+
+
+app.include_router(router, prefix="/api")
 
 
 ================================================================================
@@ -239,15 +482,53 @@ class CameraStream:
 FILE: dashboard/app.py
 ================================================================================
 
-import sqlite3
-
 import pandas as pd
+import requests
 import streamlit as st
 
 
 st.title("Smart Attendance Dashboard")
 
-conn = sqlite3.connect("attendance.db")
+default_api_url = "http://127.0.0.1:8000/api"
+api_base = st.sidebar.text_input("API Base URL", value=default_api_url).rstrip("/")
+
+
+def safe_get(path, params=None):
+    try:
+        response = requests.get(
+            f"{api_base}{path}",
+            params=params,
+            timeout=8,
+        )
+        response.raise_for_status()
+        return response.json(), None
+    except requests.RequestException as exc:
+        return None, str(exc)
+
+
+def safe_post(path, payload):
+    try:
+        response = requests.post(
+            f"{api_base}{path}",
+            json=payload,
+            timeout=8,
+        )
+        response.raise_for_status()
+        return response.json(), None
+    except requests.RequestException as exc:
+        return None, str(exc)
+
+
+health, health_error = safe_get("/health")
+if health_error:
+    st.sidebar.error("API unreachable")
+else:
+    st.sidebar.success("API connected")
+
+stats, stats_error = safe_get("/stats/today")
+if stats and not stats_error:
+    st.sidebar.metric("Present Today", f"{stats['present_users']}/{stats['total_users']}")
+    st.sidebar.metric("Attendance %", f"{stats['attendance_percent']}%")
 
 menu = st.sidebar.selectbox(
     "Menu",
@@ -268,60 +549,86 @@ if menu == "Register User":
 
     if st.button("Register"):
         if name.strip():
-            st.write("Run registration from main system")
+            result, error = safe_post("/users", {"name": name.strip()})
+            if error:
+                st.error(f"Failed to register user: {error}")
+            else:
+                st.success(f"Registered {result['name']} (ID: {result['id']})")
         else:
             st.warning("Please enter a student name.")
+
+    st.subheader("Quick Attendance Mark")
+    users, users_error = safe_get("/users")
+    if users_error:
+        st.error(f"Unable to fetch users: {users_error}")
+    elif users:
+        user_options = {f"{u['name']} (ID: {u['id']})": u["id"] for u in users}
+        selected_label = st.selectbox("Select User", list(user_options.keys()))
+        if st.button("Mark Attendance"):
+            mark_result, mark_error = safe_post(
+                "/attendance/mark",
+                {"user_id": user_options[selected_label]},
+            )
+            if mark_error:
+                st.error(f"Failed to mark attendance: {mark_error}")
+            else:
+                status = mark_result.get("status", "unknown")
+                if status == "already_marked":
+                    st.info("Attendance already marked for today.")
+                else:
+                    st.success("Attendance marked successfully.")
+    else:
+        st.info("No users found. Register a user first.")
 
 # USER LIST
 elif menu == "Users":
 
     st.header("Registered Users")
 
-    df = pd.read_sql_query(
-        "SELECT * FROM users",
-        conn,
-    )
-
-    st.dataframe(df)
+    users, error = safe_get("/users")
+    if error:
+        st.error(f"Unable to fetch users: {error}")
+    else:
+        df = pd.DataFrame(users)
+        st.dataframe(df, use_container_width=True)
 
 # ATTENDANCE TABLE
 elif menu == "Attendance":
 
     st.header("Attendance Records")
 
-    df = pd.read_sql_query(
-        """
-        SELECT users.name, attendance.date, attendance.time
-        FROM attendance
-        JOIN users ON users.id = attendance.user_id
-        """,
-        conn,
-    )
+    filter_today = st.checkbox("Show only today", value=False)
 
-    st.dataframe(df)
+    params = None
+    if filter_today:
+        params = {"date": pd.Timestamp.now().date().isoformat()}
+
+    records, error = safe_get("/attendance", params=params)
+
+    if error:
+        st.error(f"Unable to fetch attendance: {error}")
+    else:
+        df = pd.DataFrame(records)
+        st.dataframe(df, use_container_width=True)
 
 # EXPORT REPORT
 elif menu == "Export":
 
     st.header("Export Attendance Report")
 
-    df = pd.read_sql_query(
-        """
-        SELECT users.name, attendance.date, attendance.time
-        FROM attendance
-        JOIN users ON users.id = attendance.user_id
-        """,
-        conn,
-    )
+    records, error = safe_get("/attendance")
+    if error:
+        st.error(f"Unable to fetch attendance: {error}")
+    else:
+        df = pd.DataFrame(records)
+        csv = df.to_csv(index=False)
 
-    csv = df.to_csv(index=False)
-
-    st.download_button(
-        label="Download CSV",
-        data=csv,
-        file_name="attendance_report.csv",
-        mime="text/csv",
-    )
+        st.download_button(
+            label="Download CSV",
+            data=csv,
+            file_name="attendance_report.csv",
+            mime="text/csv",
+        )
 
 
 ================================================================================
@@ -1006,25 +1313,52 @@ class FaceDetector:
 FILE: vision/embedder.py
 ================================================================================
 
-from pathlib import Path
-
 import cv2
 import numpy as np
-from insightface import model_zoo
+from insightface.app import FaceAnalysis
 
 
 class FaceEmbedder:
 	def __init__(self):
 		"""
-		Initialize ArcFace recognition model for direct feature extraction.
+		Initialize ArcFace recognition model for lazy loading on first use.
 		"""
-		model_path = Path.home() / ".insightface" / "models" / "buffalo_l" / "w600k_r50.onnx"
-		if not model_path.exists():
-			raise RuntimeError(f"ArcFace model not found at {model_path}")
+		self.app = None
+		self.rec_model = None
+		self._init_error = None
 
-		self.recognizer = model_zoo.get_model(str(model_path))
-		# CPU mode is stable on this environment (CUDA provider is unavailable).
-		self.recognizer.prepare(ctx_id=-1)
+	def _ensure_model_loaded(self):
+		"""Lazy load the model on first use with error handling."""
+		if self.app is not None:
+			return  # Already loaded
+		
+		if self._init_error:
+			raise self._init_error
+		
+		try:
+			# Use FaceAnalysis which auto-downloads buffalo_l model
+			self.app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+			self.app.prepare(ctx_id=-1, det_size=(640, 640))
+			
+			# Extract the recognition model - it's loaded as part of FaceAnalysis
+			# The _models attribute contains individual models
+			if hasattr(self.app, '_models'):
+				for model in self.app._models:
+					if hasattr(model, 'taskname') and model.taskname == 'recognition':
+						self.rec_model = model
+						break
+			
+			if self.rec_model is None and hasattr(self.app, 'models'):
+				if isinstance(self.app.models, dict) and 'recognition' in self.app.models:
+					self.rec_model = self.app.models['recognition']
+			
+			if self.rec_model is None:
+				# Fallback: the app has a built-in method for embeddings
+				self.rec_model = self.app
+				
+		except Exception as e:
+			self._init_error = RuntimeError(f"Face model initialization failed: {e}")
+			raise self._init_error
 
 	def get_embedding(self, face_image):
 		"""
@@ -1037,20 +1371,45 @@ class FaceEmbedder:
 		if face_image is None or face_image.size == 0:
 			return None
 
-		# ArcFace ONNX expects 112x112 input.
-		resized = cv2.resize(face_image, (112, 112))
-		embedding = self.recognizer.get_feat(resized)
-
-		if embedding is None:
+		try:
+			self._ensure_model_loaded()
+		except Exception as e:
+			print(f"Skipping embedding extraction: {e}")
 			return None
 
-		embedding = np.asarray(embedding).squeeze()
-		if embedding.ndim != 1:
-			return None
+		try:
+			# Ensure 112x112 input
+			if face_image.shape[:2] != (112, 112):
+				face_image = cv2.resize(face_image, (112, 112))
+			
+			# Prepare input for the model
+			# Most ONNX models expect shape (batch, channels, height, width)
+			face_chw = np.transpose(face_image, (2, 0, 1))  # HWC -> CHW
+			batch_input = np.expand_dims(face_chw, 0).astype(np.float32)  # Add batch
+			
+			# Get embedding from the recognition model
+			if hasattr(self.rec_model, 'forward'):
+				embedding = self.rec_model.forward(batch_input)
+			elif hasattr(self.rec_model, 'get_feat'):
+				embedding = self.rec_model.get_feat(face_image)
+			else:
+				# Fallback: if rec_model is the app itself
+				print("Warning: Using fallback embedding method")
+				return None
+			
+			if embedding is None or embedding.size == 0:
+				return None
 
-		return embedding
+			embedding = np.asarray(embedding).squeeze()
+			if embedding.size == 0 or embedding.ndim != 1:
+				return None
+
+			return embedding
+		except Exception as e:
+			print(f"Error extracting embedding: {e}")
+			return None
 
 
 ================================================================================
-SUMMARY: 14 Python files extracted
+SUMMARY: 15 Python files extracted
 ================================================================================
