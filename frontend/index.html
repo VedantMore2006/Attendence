@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Attendance | Admin Login</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Lucide Icons for simple vector icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-container">
+        <div class="login-container">
+            <div class="glass-panel login-card animate-fade-in">
+                <div class="login-header">
+                    <div class="login-logo text-gradient mb-4">
+                        <i data-lucide="scan-face" style="width: 48px; height: 48px;"></i>
+                    </div>
+                    <h2>Smart Attendance</h2>
+                    <p class="text-secondary mt-4">Login to access dashboard</p>
+                </div>
+                
+                <form id="loginForm">
+                    <div class="form-group" style="margin-bottom: 1.5rem;">
+                        <label class="form-label" for="username">Admin Username</label>
+                        <div style="position: relative;">
+                            <i data-lucide="user" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-secondary); width: 1.25rem; height: 1.25rem;"></i>
+                            <input type="text" id="username" class="form-control" style="padding-left: 3rem;" placeholder="admin" required autofocus>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" style="margin-bottom: 2rem;">
+                        <label class="form-label" for="password">Password</label>
+                        <div style="position: relative;">
+                            <i data-lucide="lock" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-secondary); width: 1.25rem; height: 1.25rem;"></i>
+                            <input type="password" id="password" class="form-control" style="padding-left: 3rem;" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">
+                        Sign In
+                        <i data-lucide="arrow-right" style="margin-left: 0.5rem; width: 1.25rem; height: 1.25rem;"></i>
+                    </button>
+                </form>
+
+                <div class="text-center mt-4" style="margin-top: 2rem; font-size: 0.875rem;">
+                    <p class="text-secondary" style="font-size: 0.75rem; opacity: 0.7;">
+                        Note: This is a prototype UI. Any generic credentials will work.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/login.js"></script>
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+    </script>
+</body>
+</html>

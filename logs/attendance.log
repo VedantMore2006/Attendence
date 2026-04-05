@@ -1,0 +1,29 @@
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 4: aligning face box=[285, 269, 457, 441]
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 20 total embeddings
+2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.3266  threshold=0.55
+2026-04-06 00:53:29 | INFO     | api.routes | SCAN result=no_match  best_score=0.3266  threshold=0.55
+2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 4: aligning face box=[259, 269, 431, 441]
+2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 00:53:34 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 00:53:34 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 20 total embeddings
+2026-04-06 00:53:34 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.3809  threshold=0.55
+2026-04-06 00:53:34 | INFO     | api.routes | SCAN result=no_match  best_score=0.3809  threshold=0.55
+2026-04-06 00:54:03 | INFO     | api.routes | DELETE user: id=2
+2026-04-06 00:54:08 | INFO     | api.routes | DELETE user: id=1
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 4: aligning face box=[247, 248, 445, 446]
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 6: loaded 1 users, 10 total embeddings
+2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 6: best_match=3  name=v  score=0.7500  threshold=0.55
+2026-04-06 00:54:43 | INFO     | api.routes | SCAN result=marked  user=v  id=3  time=00:54:43  confidence=0.7500

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Attendance | Dashboard</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-container">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-container">
+                <i data-lucide="scan-face" class="text-gradient" style="width: 28px; height: 28px;"></i>
+                <h2 style="font-size: 1.0625rem;">Smart Attend</h2>
+            </div>
+
+            <nav>
+                <ul class="nav-menu">
+                    <li>
+                        <a href="#" class="nav-item active" id="nav-dashboard">
+                            <i data-lucide="layout-dashboard"></i>
+                            Overview
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="nav-item" id="nav-attendance">
+                            <i data-lucide="scan-face"></i>
+                            Scan
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="nav-item" id="nav-registration">
+                            <i data-lucide="user-plus"></i>
+                            Register
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="nav-item" id="nav-users">
+                            <i data-lucide="users"></i>
+                            Users
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="nav-item" id="nav-logs">
+                            <i data-lucide="list"></i>
+                            Logs
+                        </a>
+                    </li>
+                    <li>
+                        <div class="nav-divider"></div>
+                        <a href="#" class="nav-item" id="logoutBtn" style="color: var(--danger-color);">
+                            <i data-lucide="log-out"></i>
+                            Logout
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content overflow-y-auto">
+
+            <!-- Header -->
+            <header class="header">
+                <div>
+                    <h1 class="text-gradient">Dashboard</h1>
+                    <div class="header-meta">
+                        <p class="text-secondary" id="currentDate" style="font-size: 0.875rem;"></p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span id="apiStatus" class="badge">Connecting…</span>
+                </div>
+            </header>
+
+            <!-- ── Overview Section ──────────────────────────────────────── -->
+            <section id="section-dashboard" class="animate-fade-in">
+
+                <div class="stats-grid">
+                    <div class="glass-panel stat-card stat-accent-blue">
+                        <span class="stat-title">Registered Users</span>
+                        <div class="stat-body">
+                            <span class="stat-value" id="stat-total-users">—</span>
+                            <div class="stat-icon stat-icon-blue">
+                                <i data-lucide="users"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel stat-card stat-accent-green">
+                        <span class="stat-title">Present Today</span>
+                        <div class="stat-body">
+                            <span class="stat-value text-success" id="stat-present-today">—</span>
+                            <div class="stat-icon stat-icon-green">
+                                <i data-lucide="user-check"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-panel stat-card stat-accent-indigo">
+                        <span class="stat-title">Attendance Rate</span>
+                        <div class="stat-body">
+                            <span class="stat-value" id="stat-percent">—</span>
+                            <div class="stat-icon stat-icon-indigo">
+                                <i data-lucide="percent"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Today's Attendance -->
+                <div class="data-section glass-panel">
+                    <div class="section-header">
+                        <h3>Today's Attendance</h3>
+                        <button class="btn btn-outline" id="refreshTodayBtn" style="padding: 0.5rem 0.875rem; font-size: 0.8125rem;">
+                            <i data-lucide="refresh-cw" style="width: 0.875rem; height: 0.875rem;"></i>
+                            Refresh
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Check-in Time</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="todayAttendanceTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── Attendance Scan Section ───────────────────────────────── -->
+            <section id="section-attendance" class="animate-fade-in" style="display: none;">
+                <div class="data-section glass-panel">
+                    <div class="section-header">
+                        <div>
+                            <h3>Face Scan</h3>
+                            <p class="text-secondary" style="font-size: 0.8125rem; margin-top: 0.25rem;">Point camera at face to mark attendance</p>
+                        </div>
+                        <div id="scanStatusBadge" class="badge badge-info" style="display: none;">Scanning</div>
+                    </div>
+
+                    <div style="padding: 1.5rem;">
+                        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap;">
+                            <button type="button" id="startScanBtn" class="btn btn-primary">
+                                <i data-lucide="play"></i>
+                                Start Scan
+                            </button>
+                            <button type="button" id="stopScanBtn" class="btn btn-secondary" style="display: none;">
+                                <i data-lucide="square"></i>
+                                Stop
+                            </button>
+                        </div>
+
+                        <div class="scan-wrapper" id="scanWrapper" style="display: none;">
+                            <video id="attendanceVideo" width="640" height="480" autoplay playsinline></video>
+                            <div class="scan-overlay"></div>
+                            <div class="scan-line"></div>
+                        </div>
+
+                        <canvas id="attendanceCanvas" style="display: none;"></canvas>
+
+                        <div class="scan-result-card" id="scanResultCard" style="display:none;">
+                            <i data-lucide="info" style="width: 1.375rem; height: 1.375rem; flex-shrink: 0;"></i>
+                            <div>
+                                <div class="scan-result-card-title" id="scanResultTitle"></div>
+                                <div class="scan-result-card-sub" id="scanResultSub"></div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; flex-wrap: wrap;" id="scanButtonsWrapper" style="display: none;">
+                            <button type="button" id="scanAnotherBtn" class="btn btn-primary">
+                                <i data-lucide="redo-2"></i>
+                                Scan Another
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── Registration Section ──────────────────────────────────── -->
+            <section id="section-registration" class="animate-fade-in" style="display: none;">
+                <div class="data-section glass-panel">
+                    <div class="section-header">
+                        <div>
+                            <h3>Register New User</h3>
+                            <p class="text-secondary" style="font-size: 0.8125rem; margin-top: 0.25rem;">Capture 10 face frames for accurate recognition</p>
+                        </div>
+                    </div>
+
+                    <div style="padding: 1.5rem;">
+                        <form id="registrationForm" style="max-width: 640px;">
+                            <div class="form-group">
+                                <label class="form-label" for="userName">Full Name</label>
+                                <input type="text" id="userName" class="form-control" placeholder="Enter name" required autocomplete="off">
+                            </div>
+
+                            <div style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
+                                <button type="button" id="startCameraBtn" class="btn btn-primary">
+                                    <i data-lucide="camera"></i>
+                                    Start Camera
+                                </button>
+                                <button type="button" id="captureBtn" class="btn btn-secondary" style="display: none;">
+                                    <i data-lucide="x"></i>
+                                    Stop Capture
+                                </button>
+                            </div>
+
+                            <div style="margin-bottom: 1.25rem; display: none;" id="videoWrapper">
+                                <video id="video" width="640" height="480" autoplay playsinline></video>
+                            </div>
+                            <canvas id="canvas" style="display: none;"></canvas>
+
+                            <div class="capture-progress" id="captureProgress" style="display: none;">
+                                <div class="capture-dots" id="captureDots"></div>
+                                <span class="capture-label" id="captureStatus">Captured: 0 / 10</span>
+                            </div>
+
+                            <button type="submit" class="btn btn-success" style="margin-top: 1.25rem;" id="registerSubmitBtn">
+                                <i data-lucide="user-plus"></i>
+                                Register User
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── Users Section ─────────────────────────────────────────── -->
+            <section id="section-users" class="animate-fade-in" style="display: none;">
+                <div class="data-section glass-panel">
+                    <div class="section-header">
+                        <h3>Registered Users</h3>
+                        <span class="badge badge-info" id="usersCountBadge">—</span>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Name</th>
+                                    <th>Registered At</th>
+                                    <th style="width: 80px; text-align: center;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── Logs Section ──────────────────────────────────────────── -->
+            <section id="section-logs" class="animate-fade-in" style="display: none;">
+                <div class="data-section glass-panel">
+                    <div class="section-header">
+                        <h3>Attendance Logs</h3>
+                        <input type="date" id="logDateFilter" class="form-control"
+                            style="width: auto; padding: 0.4375rem 0.75rem; font-size: 0.8125rem; background: var(--bg-dark);">
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Name</th>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="allLogsTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toast-container"></div>
+
+    <script src="js/api.js"></script>
+    <script src="js/dashboard.js"></script>
+    <!-- Toast container -->
+    <div id="toast-container" style="position: fixed; top: 1rem; right: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: 0.5rem;"></div>
+
+    <!-- Delete confirmation modal -->
+    <div id="deleteModal" class="modal" style="display: none;">
+        <div class="modal-overlay" id="deleteModalOverlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 style="color: var(--danger-color);">Delete User</h2>
+                <button class="modal-close" id="deleteModalClose" aria-label="Close">
+                    <i data-lucide="x" style="width: 1.25rem; height: 1.25rem;"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p id="deleteModalMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" id="deleteModalCancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="deleteModalConfirm">
+                    <i data-lucide="trash-2"></i>
+                    Delete User
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script>lucide.createIcons();</script>
+</body>
+</html>
