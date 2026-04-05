@@ -1,10 +1,24 @@
-numpy>=1.24,<2.0
-opencv-python>=4.8.0
-mediapipe>=0.10.14
-insightface>=0.7.3
-onnxruntime>=1.17.0
-streamlit>=1.33.0
-pandas>=2.0.0
-fastapi>=0.112.0
-uvicorn[standard]>=0.30.0
-requests>=2.31.0
+# Core ML/Vision Stack
+numpy>=1.24.0,<2.0.0               # Numerical computing
+opencv-python>=4.8.0,<4.10.0       # Computer vision (cross-platform)
+mediapipe>=0.10.14,<0.11.0         # MediaPipe for face detection
+insightface>=0.7.3,<0.8.0          # ArcFace embeddings
+onnxruntime>=1.17.0,<1.18.0        # ONNX model runtime
+
+# Backend API
+fastapi>=0.112.0,<1.0.0            # Web framework
+uvicorn[standard]>=0.30.0,<1.0.0   # ASGI server
+pydantic>=2.0.0,<3.0.0             # Data validation
+python-multipart>=0.0.6,<1.0.0     # Form data parsing
+
+# Frontend/Dashboard (optional)
+streamlit>=1.33.0,<2.0.0           # Dashboard UI (optional)
+pandas>=2.0.0,<3.0.0               # Data analysis
+
+# HTTP & Utilities
+requests>=2.31.0,<3.0.0            # HTTP client
+python-dateutil>=2.8.2,<3.0.0      # Date utilities
+
+# Logging & Debugging
+python-dotenv>=1.0.0,<2.0.0        # Environment variables
+
