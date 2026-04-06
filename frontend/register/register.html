@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register User — Smart Attendance</title>
+    <link rel="stylesheet" href="../css/theme.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            color: #38bdf8;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #94a3b8;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            align-items: start;
+        }
+
+        .form-section {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 2rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            color: #f1f5f9;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: #f1f5f9;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: rgba(59, 130, 246, 0.5);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .form-group input::placeholder {
+            color: #64748b;
+        }
+
+        .camera-section {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 2rem;
+        }
+
+        .camera-feed {
+            position: relative;
+            aspect-ratio: 4/3;
+            background: #000;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .camera-controls {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn-lg {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-capture {
+            flex: 1;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-capture:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-capture:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-clear {
+            padding: 0.75rem 1.5rem;
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-clear:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.5);
+        }
+
+        .images-preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .image-thumb {
+            aspect-ratio: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            border: 2px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .image-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .image-count {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .image-count p {
+            color: #f1f5f9;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .image-count .count {
+            color: #10b981;
+            font-size: 1.5rem;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .btn-primary, .btn-secondary {
+            flex: 1;
+        }
+
+        .status-message {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            display: none;
+            font-weight: 500;
+        }
+
+        .status-message.success {
+            display: block;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #10b981;
+        }
+
+        .status-message.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 4px solid rgba(59, 130, 246, 0.5);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            color: #94a3b8;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.3rem;
+            }
+
+            .form-section, .camera-section {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div include-navbar></div>
+
+    <div class="container">
+        <div class="header">
+            <h1>👤 Register New User</h1>
+            <p>Capture multiple images for accurate face enrollment</p>
+        </div>
+
+        <div class="content">
+            <div class="form-section">
+                <h2 style="color: #f1f5f9; margin-bottom: 1.5rem;">User Information</h2>
+                
+                <div class="info-box">
+                    📸 Capture at least 3-5 images of the user's face from different angles for best accuracy.
+                </div>
+
+                <div class="form-group">
+                    <label for="fullName">Full Name</label>
+                    <input 
+                        type="text" 
+                        id="fullName" 
+                        placeholder="Enter full name"
+                        onkeypress="if(event.key==='Enter') captureImage()"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Email (Optional)</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        placeholder="user@example.com"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="department">Department (Optional)</label>
+                    <input 
+                        type="text" 
+                        id="department" 
+                        placeholder="e.g., Sales, Engineering"
+                    >
+                </div>
+
+                <div class="image-count">
+                    <p>Captured Images</p>
+                    <p class="count" id="imageCount">0</p>
+                </div>
+
+                <div class="images-preview" id="imagePreview"></div>
+
+                <div class="status-message" id="statusMessage"></div>
+
+                <div class="action-buttons">
+                    <button class="btn-primary" id="registerBtn" type="button" onclick="registerUser(event)">
+                        Register User
+                    </button>
+                    <button class="btn-secondary" id="clearBtn" onclick="clearAll()">
+                        Reset
+                    </button>
+                </div>
+
+                <a href="../index.html" style="display: block; text-align: center; margin-top: 1rem; color: #60a5fa; text-decoration: none; font-size: 0.9rem;">
+                    ← Back to Home
+                </a>
+            </div>
+
+            <div class="camera-section">
+                <h2 style="color: #f1f5f9; margin-bottom: 1rem;">Camera</h2>
+
+                <div class="camera-feed">
+                    <video id="video" autoplay playsinline></video>
+                </div>
+
+                <div class="camera-controls">
+                    <button class="btn-capture" id="captureBtn" onclick="captureImage()">
+                        📸 Capture Image
+                    </button>
+                    <button class="btn-clear" id="cameraBtn" onclick="toggleCamera()">
+                        Stop Camera
+                    </button>
+                </div>
+
+                <div style="background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 1rem;">
+                    <p style="color: #94a3b8; font-size: 0.85rem; margin: 0;">
+                        💡 <strong>Tips:</strong>
+                    </p>
+                    <ul style="color: #cbd5e1; font-size: 0.85rem; margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                        <li>Use good lighting</li>
+                        <li>Face the camera directly</li>
+                        <li>Capture from different angles</li>
+                        <li>Avoid glasses or hats</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/common.js"></script>
+    <script src="register.js"></script>
+</body>
+</html>

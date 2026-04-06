@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Scan — Smart Attendance</title>
+    <link rel="stylesheet" href="../css/theme.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            color: #38bdf8;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #94a3b8;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 2rem;
+        }
+
+        .camera-section {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 2rem;
+        }
+
+        .camera-feed {
+            position: relative;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .detection-info {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .detection-info p {
+            color: #94a3b8;
+            margin: 0;
+        }
+
+        .detection-status {
+            color: #f59e0b;
+            font-weight: 600;
+            font-size: 1.1rem;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .detection-status.found {
+            color: #10b981;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .stats-panel {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 2rem;
+        }
+
+        .stat-box {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            color: #38bdf8;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+
+        .recent-scans {
+            margin-top: 2rem;
+        }
+
+        .recent-scans h3 {
+            color: #f1f5f9;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .scan-item {
+            background: rgba(0, 0, 0, 0.2);
+            border-left: 3px solid rgba(16, 185, 129, 0.5);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .scan-name {
+            color: #f1f5f9;
+            font-weight: 600;
+        }
+
+        .scan-time {
+            color: #94a3b8;
+            font-size: 0.8rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .btn-primary, .btn-secondary {
+            flex: 1;
+        }
+
+        .status-message {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            display: none;
+            font-weight: 500;
+        }
+
+        .status-message.success {
+            display: block;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #10b981;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 4px solid rgba(59, 130, 246, 0.5);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            font-size: 0.875rem;
+            color: #94a3b8;
+            line-height: 1.5;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.3rem;
+            }
+
+            .camera-section, .stats-panel {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div include-navbar></div>
+
+    <div class="container">
+        <div class="header">
+            <h1>📸 Attendance Scanner</h1>
+            <p>Real-time face recognition and attendance marking</p>
+        </div>
+
+        <div class="content">
+            <div class="camera-section">
+                <div class="info-box">
+                    🎥 The system will automatically detect and recognize registered faces. Mark your attendance by showing your face to the camera.
+                </div>
+
+                <div class="camera-feed">
+                    <video id="video" autoplay playsinline></video>
+                </div>
+
+                <div class="detection-info">
+                    <p class="detection-status" id="status">👁️ Waiting for faces...</p>
+                </div>
+
+                <div class="status-message" id="statusMessage"></div>
+
+                <div class="controls">
+                    <button class="btn-primary" id="toggleBtn" onclick="toggleCamera()">
+                        Stop Camera
+                    </button>
+                    <button class="btn-secondary" onclick="refreshStats()">
+                        Refresh Stats
+                    </button>
+                </div>
+            </div>
+
+            <div class="stats-panel">
+                <h2 style="color: #f1f5f9; margin-bottom: 1.5rem;">Today's Stats</h2>
+
+                <div class="stat-box">
+                    <div class="stat-label">Total Present</div>
+                    <div class="stat-value" id="totalPresent">0</div>
+                </div>
+
+                <div class="stat-box">
+                    <div class="stat-label">Scans Today</div>
+                    <div class="stat-value" id="totalScans">0</div>
+                </div>
+
+                <div class="stat-box">
+                    <div class="stat-label">Last Scan</div>
+                    <div class="stat-value" id="lastScan" style="font-size: 1rem;">--:--</div>
+                </div>
+
+                <div class="recent-scans">
+                    <h3>Recent Scans</h3>
+                    <div id="recentList">
+                        <p style="color: #64748b; text-align: center; padding: 2rem 0;">
+                            No scans yet today
+                        </p>
+                    </div>
+                </div>
+
+                <a href="../index.html" style="display: block; text-align: center; margin-top: 1rem; color: #60a5fa; text-decoration: none; font-size: 0.9rem;">
+                    ← Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/common.js"></script>
+    <script src="scan.js"></script>
+</body>
+</html>

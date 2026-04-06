@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 2 — User Registration</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            color: #fff;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1.05rem;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+        }
+
+        .card h2 {
+            font-size: 1.3rem;
+            color: #38bdf8;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h3 {
+            font-size: 1.05rem;
+            color: #cbd5e1;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #cbd5e1;
+            margin-bottom: 0.5rem;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #f1f5f9;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        input[type="text"]::placeholder {
+            color: #64748b;
+        }
+
+        .info-box {
+            background: rgba(56, 189, 248, 0.1);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            color: #bfdbfe;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            line-height: 1.5;
+        }
+
+        .info-box strong {
+            color: #38bdf8;
+        }
+
+        /* Camera Preview */
+        .camera-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .camera-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            height: 80%;
+            border: 3px solid rgba(16, 185, 129, 0.6);
+            border-radius: 12px;
+            pointer-events: none;
+        }
+
+        .camera-overlay.detected {
+            border-color: #10b981;
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+        }
+
+        .camera-status {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .camera-status.detecting {
+            color: #10b981;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #38bdf8, #3b82f6);
+            color: #fff;
+            width: 100%;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            width: auto;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .button-group.single button {
+            grid-column: 1 / -1;
+        }
+
+        /* Image Gallery */
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .gallery-item {
+            position: relative;
+            aspect-ratio: 1;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .gallery-item:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .gallery-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .gallery-item .remove-btn {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: #ef4444;
+            color: #fff;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 0.8rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .gallery-item:hover .remove-btn {
+            opacity: 1;
+        }
+
+        .capture-counter {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #86efac;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .capture-counter.warning {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: rgba(245, 158, 11, 0.4);
+            color: #fcd34d;
+        }
+
+        .status-message {
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .status-message.success {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #86efac;
+            display: block;
+        }
+
+        .status-message.error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
+            display: block;
+        }
+
+        .status-message.loading {
+            background: rgba(245, 158, 11, 0.2);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            color: #fcd34d;
+            display: block;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Response Section */
+        .response-section {
+            display: none;
+            margin-top: 2rem;
+            animation: slideIn 0.4s ease;
+        }
+
+        .response-section.visible {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .response-box {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .response-box.error {
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .response-box h3 {
+            color: #10b981;
+            margin-bottom: 1rem;
+            font-size: 1.15rem;
+        }
+
+        .response-box.error h3 {
+            color: #ef4444;
+        }
+
+        .response-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .stat {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .stat.error .stat-value {
+            color: #ef4444;
+        }
+
+        .stat.warning .stat-value {
+            color: #f59e0b;
+        }
+
+        .user-details {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.9rem;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #94a3b8;
+        }
+
+        .detail-value {
+            color: #f1f5f9;
+            font-weight: 600;
+        }
+
+        .btn-next {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            width: 100%;
+            padding: 1rem;
+            font-size: 1rem;
+        }
+
+        .btn-next:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-back {
+            background: rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 0.75rem 1.5rem;
+            display: inline-block;
+            margin-top: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+
+            .card {
+                padding: 1.5rem;
+            }
+
+            .header h1 {
+                font-size: 1.5rem;
+            }
+
+            .button-group {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>👤 User Registration</h1>
+            <p>Enroll a new user by capturing multiple face images</p>
+        </div>
+
+        <div class="content">
+            <!-- Left Column: Camera & Controls -->
+            <div class="card">
+                <h2>📸 Capture Face Images</h2>
+                
+                <div class="info-box">
+                    <strong>Tip:</strong> Capture 4-8 images from different angles for better recognition accuracy.
+                </div>
+
+                <div class="form-group">
+                    <label for="fullName">Full Name *</label>
+                    <input type="text" id="fullName" placeholder="e.g., John Doe" onkeypress="if(event.key==='Enter') event.preventDefault();" />
+                </div>
+
+                <div class="camera-container">
+                    <video id="cameraFeed" playsinline autoplay muted></video>
+                    <div class="camera-overlay" id="cameraOverlay"></div>
+                    <div class="camera-status" id="cameraStatus">Initializing...</div>
+                </div>
+
+                <button class="btn-primary" onclick="startCamera()">Start Camera</button>
+                <button class="btn-secondary" onclick="stopCamera()" style="display:none;" id="btn-stop-camera">Stop Camera</button>
+
+                <h3>Capture Settings</h3>
+                <div class="button-group">
+                    <button class="btn-primary btn-small" onclick="captureImage()">📷 Capture</button>
+                    <button class="btn-secondary btn-small" onclick="clearAllImages()">🗑️ Clear All</button>
+                </div>
+            </div>
+
+            <!-- Right Column: Image Gallery & Upload -->
+            <div class="card">
+                <h2>🎯 Captured Images</h2>
+                
+                <div class="capture-counter" id="captureCounter">
+                    0 images captured
+                </div>
+
+                <div class="gallery" id="imageGallery"></div>
+
+                <h3>Upload to Backend</h3>
+                <div class="status-message" id="statusMessage"></div>
+
+                <button type="button" class="btn-primary" onclick="registerUser(event)" id="btn-register">Register User</button>
+                
+                <div class="response-section" id="responseSection">
+                    <div class="response-box" id="responseBox">
+                        <h3 id="responseTitle">Registration Successful! ✓</h3>
+                        <div class="response-stats" id="responseStats"></div>
+                        <div class="user-details" id="userDetails"></div>
+                    </div>
+                    <button class="btn-next" onclick="proceedToPhase3()">
+                        Proceed to Attendance Scanning →
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="phase1-wizard.html" class="btn-back">← Back to Setup Wizard</a>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000/api';
+        let mediaStream = null;
+        let capturedImages = [];
+        let isUploading = false;
+        let faceDetector = null;
+
+        // ──────────────────────────────────────────────────────────────────────
+        // CAMERA INITIALIZATION
+        // ──────────────────────────────────────────────────────────────────────
+
+        async function startCamera() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+
+                const video = document.getElementById('cameraFeed');
+                video.srcObject = mediaStream;
+                
+                document.querySelector('button').style.display = 'none';
+                document.getElementById('btn-stop-camera').style.display = 'block';
+
+                updateCameraStatus('Ready');
+
+                // Start face detection if available (optional)
+                detectFaces();
+            } catch (error) {
+                alert('Camera access denied: ' + error.message);
+            }
+        }
+
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            document.querySelector('button').style.display = 'block';
+            document.getElementById('btn-stop-camera').style.display = 'none';
+            updateCameraStatus('Stopped');
+        }
+
+        function updateCameraStatus(text) {
+            document.getElementById('cameraStatus').textContent = text;
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // FACE DETECTION (Optional visual feedback)
+        // ──────────────────────────────────────────────────────────────────────
+
+        function detectFaces() {
+            const video = document.getElementById('cameraFeed');
+            const overlay = document.getElementById('cameraOverlay');
+
+            // Simplified: show overlay pulsing (full face-detection would require ml.js or similar)
+            // For now, just show the overlay as a guide
+            updateCameraStatus('Ready to capture');
+
+            // In a real implementation, use TensorFlow.js or similar for client-side detection
+            // For now, we just provide visual guide
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // IMAGE CAPTURE
+        // ──────────────────────────────────────────────────────────────────────
+
+        function captureImage() {
+            const video = document.getElementById('cameraFeed');
+            
+            if (!video.srcObject) {
+                alert('Camera not active. Please start the camera first.');
+                return;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+
+            const base64 = canvas.toDataURL('image/jpeg', 0.9);
+            capturedImages.push(base64);
+
+            updateGallery();
+            updateCaptureCounter();
+            updateCameraStatus(`${capturedImages.length} image(s) captured`);
+        }
+
+        function removeImage(index) {
+            capturedImages.splice(index, 1);
+            updateGallery();
+            updateCaptureCounter();
+        }
+
+        function clearAllImages() {
+            if (confirm('Clear all captured images?')) {
+                capturedImages = [];
+                updateGallery();
+                updateCaptureCounter();
+            }
+        }
+
+        function updateGallery() {
+            const gallery = document.getElementById('imageGallery');
+            gallery.innerHTML = '';
+
+            capturedImages.forEach((img, index) => {
+                const item = document.createElement('div');
+                item.className = 'gallery-item';
+                item.innerHTML = `
+                    <img src="${img}" />
+                    <button class="remove-btn" onclick="removeImage(${index})">✕</button>
+                `;
+                gallery.appendChild(item);
+            });
+        }
+
+        function updateCaptureCounter() {
+            const counter = document.getElementById('captureCounter');
+            const count = capturedImages.length;
+            
+            counter.textContent = `${count} image${count !== 1 ? 's' : ''} captured`;
+            
+            if (count < 2) {
+                counter.classList.add('warning');
+            } else {
+                counter.classList.remove('warning');
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // USER REGISTRATION
+        // ──────────────────────────────────────────────────────────────────────
+
+        async function registerUser(event) {
+            // Prevent any default form submission or page navigation
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            // Prevent multiple simultaneous uploads
+            if (isUploading) {
+                console.warn('Upload already in progress - ignoring duplicate click');
+                return;
+            }
+
+            const fullName = document.getElementById('fullName').value.trim();
+            const statusMsg = document.getElementById('statusMessage');
+            const btn = document.getElementById('btn-register');
+
+            // Validation
+            if (!fullName) {
+                statusMsg.className = 'status-message error';
+                statusMsg.textContent = '❌ Please enter a name';
+                return;
+            }
+
+            if (capturedImages.length === 0) {
+                statusMsg.className = 'status-message error';
+                statusMsg.textContent = '❌ Please capture at least one image';
+                return;
+            }
+
+            // Mark as uploading and disable button to prevent multiple clicks
+            isUploading = true;
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            btn.style.cursor = 'not-allowed';
+
+            // Send to backend silently
+            statusMsg.className = 'status-message loading';
+            statusMsg.innerHTML = '<span class="spinner"></span>Uploading ' + capturedImages.length + ' image(s) to backend silently...';
+
+            try {
+                const response = await fetch(`${API_BASE}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: fullName,
+                        images: capturedImages
+                    })
+                });
+
+                if (response.status === 201) {
+                    const data = await response.json();
+                    showSuccessResponse(data);
+                    statusMsg.className = 'status-message success';
+                    statusMsg.textContent = '✓ User registered successfully! (' + capturedImages.length + ' images processed)';
+                    
+                    // Clear form after success
+                    document.getElementById('fullName').value = '';
+                    capturedImages = [];
+                    updateGallery();
+                    updateCaptureCounter();
+                } else {
+                    const error = await response.json();
+                    statusMsg.className = 'status-message error';
+                    statusMsg.textContent = `❌ Registration failed: ${error.detail || error.error}`;
+                }
+            } catch (error) {
+                statusMsg.className = 'status-message error';
+                statusMsg.textContent = `❌ Network error: ${error.message}`;
+            } finally {
+                // Re-enable button and mark upload as complete
+                isUploading = false;
+                const btn = document.getElementById('btn-register');
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+            }
+        }
+
+        function showSuccessResponse(data) {
+            const responseBox = document.getElementById('responseBox');
+            const responseStats = document.getElementById('responseStats');
+            const userDetails = document.getElementById('userDetails');
+
+            const embedded = data.embeddings_stored;
+            const failed = data.embeddings_failed;
+            const total = embedded + failed;
+
+            responseStats.innerHTML = `
+                <div class="stat">
+                    <div class="stat-label">User ID</div>
+                    <div class="stat-value">#${data.id}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Stored</div>
+                    <div class="stat-value">${embedded}/${total}</div>
+                </div>
+                ${failed > 0 ? `
+                <div class="stat error">
+                    <div class="stat-label">Failed</div>
+                    <div class="stat-value">${failed}</div>
+                </div>
+                ` : ''}
+            `;
+
+            userDetails.innerHTML = `
+                <div class="detail-row">
+                    <span class="detail-label">Name</span>
+                    <span class="detail-value">${data.name}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Created At</span>
+                    <span class="detail-value">${new Date(data.created_at).toLocaleString()}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Face Embeddings</span>
+                    <span class="detail-value">${embedded} stored, ${failed} failed</span>
+                </div>
+            `;
+
+            if (failed > 0) {
+                responseBox.classList.add('error');
+                document.getElementById('responseTitle').textContent = `Partial Success ⚠️`;
+                responseBox.querySelector('h3').innerHTML = `User registered but ${failed} image(s) failed to process`;
+            }
+
+            document.getElementById('responseSection').classList.add('visible');
+        }
+
+        function proceedToPhase3() {
+            window.location.href = 'phase3-scan.html';
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // INITIALIZE ON PAGE LOAD
+        // ──────────────────────────────────────────────────────────────────────
+
+        window.addEventListener('load', () => {
+            updateCaptureCounter();
+        });
+    </script>
+</body>
+</html>

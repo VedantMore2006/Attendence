@@ -22,14 +22,9 @@ Attendence/
 ├── database/
 │   └── models.py
 ├── frontend/
-│   ├── dashboard.html
-│   ├── index.html
+│   ├── phase1-health.html
 │   ├── css/
-│   │   └── style.css
 │   └── js/
-│       ├── api.js
-│       ├── dashboard.js
-│       └── login.js
 ├── logs/
 │   └── attendance.log
 └── vision/
@@ -1125,892 +1120,7 @@ class FaceDatabase:
 
 
 ================================================================================
-FILE: frontend/css/style.css
-================================================================================
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-:root {
-  --bg-dark: #0f172a;
-  --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-
-  --card-bg: rgba(255, 255, 255, 0.03);
-  --card-border: rgba(255, 255, 255, 0.08);
-  --card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.35);
-
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-
-  --primary-color: #6366f1;
-  --primary-hover: #4f46e5;
-  --accent-color: #38bdf8;
-  --success-color: #10b981;
-  --warning-color: #f59e0b;
-  --danger-color: #ef4444;
-
-  --transition-fast: 0.15s ease;
-  --transition-normal: 0.3s ease;
-  --border-radius-lg: 16px;
-  --border-radius-md: 12px;
-  --border-radius-sm: 8px;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body {
-  font-family: 'Inter', sans-serif;
-  background: var(--bg-gradient);
-  color: var(--text-primary);
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow-x: hidden;
-}
-
-/* ── Typography ─────────────────────────────────────────────────────────────── */
-
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  color: var(--text-primary);
-}
-
-.text-gradient {
-  background: linear-gradient(to right, var(--accent-color), var(--primary-color));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.text-secondary { color: var(--text-secondary); }
-.text-success    { color: var(--success-color); }
-.text-warning    { color: var(--warning-color); }
-.text-danger     { color: var(--danger-color); }
-
-/* ── Glassmorphism ───────────────────────────────────────────────────────────── */
-
-.glass-panel {
-  background: var(--card-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--card-border);
-  border-radius: var(--border-radius-lg);
-  box-shadow: var(--card-shadow);
-}
-
-/* ── Buttons ─────────────────────────────────────────────────────────────────── */
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.65rem 1.35rem;
-  font-size: 0.875rem;
-  font-weight: 500;
-  border-radius: var(--border-radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-normal);
-  border: none;
-  outline: none;
-  text-decoration: none;
-  letter-spacing: 0.01em;
-  gap: 0.5rem;
-}
-
-.btn-primary {
-  background: var(--primary-color);
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
-}
-.btn-primary:hover {
-  background: var(--primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-}
-
-.btn-secondary {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-  border: 1px solid var(--card-border);
-}
-.btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.18);
-}
-
-.btn-success {
-  background: var(--success-color);
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
-}
-.btn-success:hover {
-  background: #059669;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
-}
-
-.btn-danger {
-  background: rgba(239, 68, 68, 0.12);
-  color: var(--danger-color);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-}
-.btn-danger:hover {
-  background: rgba(239, 68, 68, 0.2);
-}
-
-.btn-outline {
-  background: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--card-border);
-}
-.btn-outline:hover {
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none !important;
-}
-
-/* Refresh spin */
-.btn-spinning svg { animation: spin 0.9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ── Forms ───────────────────────────────────────────────────────────────────── */
-
-.form-group { margin-bottom: 1.5rem; }
-
-.form-label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.form-control {
-  width: 100%;
-  padding: 0.875rem 1rem;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid var(--card-border);
-  border-radius: var(--border-radius-md);
-  color: var(--text-primary);
-  font-size: 0.9375rem;
-  font-family: inherit;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-.form-control:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
-}
-.form-control::placeholder { color: var(--text-secondary); opacity: 0.5; }
-
-/* ── Utilities ───────────────────────────────────────────────────────────────── */
-
-.flex          { display: flex; }
-.flex-col      { flex-direction: column; }
-.items-center  { align-items: center; }
-.justify-between { justify-content: space-between; }
-.justify-center  { justify-content: center; }
-.gap-4         { gap: 1rem; }
-.mt-2          { margin-top: 0.5rem; }
-.mt-4          { margin-top: 1rem; }
-.mb-4          { margin-bottom: 1rem; }
-.text-center   { text-align: center; }
-.relative      { position: relative; }
-.overflow-y-auto { overflow-y: auto; }
-
-/* ── Layout ──────────────────────────────────────────────────────────────────── */
-
-.app-container { display: flex; min-height: 100vh; }
-
-.sidebar {
-  width: 256px;
-  border-right: 1px solid var(--card-border);
-  padding: 1.75rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  background: rgba(15, 23, 42, 0.5);
-}
-
-.logo-container {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0 0.5rem;
-  margin-bottom: 2.5rem;
-}
-
-.logo-container h2 {
-  font-size: 1.125rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-.nav-menu {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-  padding: 0.75rem 1rem;
-  border-radius: var(--border-radius-sm);
-  color: var(--text-secondary);
-  text-decoration: none;
-  font-size: 0.875rem;
-  font-weight: 500;
-  transition: all var(--transition-fast);
-}
-.nav-item svg { width: 1.125rem; height: 1.125rem; flex-shrink: 0; }
-.nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-}
-.nav-item.active {
-  background: rgba(99, 102, 241, 0.12);
-  color: var(--primary-color);
-  border-left: 2px solid var(--primary-color);
-  padding-left: calc(1rem - 2px);
-}
-
-.nav-divider {
-  height: 1px;
-  background: var(--card-border);
-  margin: 0.75rem 0;
-}
-
-.main-content {
-  flex: 1;
-  padding: 2rem 2.5rem;
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  min-width: 0;
-}
-
-/* ── Header ──────────────────────────────────────────────────────────────────── */
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 2.5rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--card-border);
-}
-
-.header h1 { font-size: 1.625rem; }
-
-.header-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.375rem;
-}
-
-/* ── Stat Cards ──────────────────────────────────────────────────────────────── */
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1.25rem;
-  margin-bottom: 2rem;
-}
-
-.stat-card {
-  padding: 1.375rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  overflow: hidden;
-}
-
-.stat-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0;
-  width: 3px; height: 100%;
-}
-.stat-accent-blue::before  { background: var(--accent-color); }
-.stat-accent-green::before { background: var(--success-color); }
-.stat-accent-indigo::before { background: var(--primary-color); }
-
-.stat-card::after {
-  content: '';
-  position: absolute;
-  top: -40px; right: -20px;
-  width: 120px; height: 120px;
-  border-radius: 50%;
-  opacity: 0.04;
-}
-.stat-accent-blue::after   { background: var(--accent-color); }
-.stat-accent-green::after  { background: var(--success-color); }
-.stat-accent-indigo::after { background: var(--primary-color); }
-
-.stat-title {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 0.875rem;
-}
-
-.stat-body {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.stat-value {
-  font-size: 2.25rem;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1;
-}
-
-.stat-icon {
-  padding: 0.625rem;
-  border-radius: var(--border-radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.stat-icon svg { width: 1.25rem; height: 1.25rem; }
-
-.stat-icon-blue   { background: rgba(56, 189, 248, 0.12); color: var(--accent-color); }
-.stat-icon-green  { background: rgba(16, 185, 129, 0.12); color: var(--success-color); }
-.stat-icon-indigo { background: rgba(99, 102, 241, 0.12); color: var(--primary-color); }
-
-/* ── Data Sections ───────────────────────────────────────────────────────────── */
-
-.data-section {
-  background: var(--card-bg);
-  border-radius: var(--border-radius-lg);
-  border: 1px solid var(--card-border);
-  overflow: hidden;
-}
-
-.section-header {
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid var(--card-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.section-header h3 {
-  font-size: 0.9375rem;
-  font-weight: 600;
-}
-
-.table-container { width: 100%; overflow-x: auto; }
-
-table { width: 100%; border-collapse: collapse; }
-
-th {
-  background: rgba(0, 0, 0, 0.15);
-  color: var(--text-secondary);
-  font-weight: 500;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  text-align: left;
-  padding: 0.875rem 1.5rem;
-  white-space: nowrap;
-}
-
-td {
-  padding: 0.9375rem 1.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-size: 0.875rem;
-  vertical-align: middle;
-}
-
-tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
-
-/* ── Badges ──────────────────────────────────────────────────────────────────── */
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.badge-success {
-  background: rgba(16, 185, 129, 0.12);
-  color: var(--success-color);
-  border: 1px solid rgba(16, 185, 129, 0.2);
-}
-
-.badge-warning {
-  background: rgba(245, 158, 11, 0.12);
-  color: var(--warning-color);
-  border: 1px solid rgba(245, 158, 11, 0.2);
-}
-
-.badge-danger {
-  background: rgba(239, 68, 68, 0.12);
-  color: var(--danger-color);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-.badge-info {
-  background: rgba(56, 189, 248, 0.12);
-  color: var(--accent-color);
-  border: 1px solid rgba(56, 189, 248, 0.2);
-}
-
-/* ── Avatar ──────────────────────────────────────────────────────────────────── */
-
-.avatar {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 0.6875rem;
-  color: #fff;
-  flex-shrink: 0;
-  text-transform: uppercase;
-}
-
-.user-cell {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-}
-
-/* ── Skeleton Loading ────────────────────────────────────────────────────────── */
-
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0.04) 25%,
-    rgba(255, 255, 255, 0.09) 50%,
-    rgba(255, 255, 255, 0.04) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite;
-  border-radius: 4px;
-  display: inline-block;
-  height: 0.875rem;
-}
-
-@keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* ── Empty State ─────────────────────────────────────────────────────────────── */
-
-.empty-state {
-  padding: 3rem 1.5rem;
-  text-align: center;
-  color: var(--text-secondary);
-}
-
-.empty-state-icon {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 0.875rem;
-  opacity: 0.25;
-}
-
-.empty-state p {
-  font-size: 0.875rem;
-}
-
-/* ── Toast Notifications ─────────────────────────────────────────────────────── */
-
-#toast-container {
-  position: fixed;
-  top: 1.5rem;
-  right: 1.5rem;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 0.625rem;
-  pointer-events: none;
-}
-
-.toast {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.875rem 1rem;
-  border-radius: var(--border-radius-md);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-  pointer-events: all;
-  min-width: 280px;
-  max-width: 400px;
-  border: 1px solid;
-  animation: toastIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-.toast svg { width: 1.125rem; height: 1.125rem; flex-shrink: 0; margin-top: 0.1rem; }
-
-.toast-success { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.3); color: #6ee7b7; }
-.toast-error   { background: rgba(239, 68, 68, 0.14);  border-color: rgba(239, 68, 68, 0.3);  color: #fca5a5; }
-.toast-warning { background: rgba(245, 158, 11, 0.14); border-color: rgba(245, 158, 11, 0.3); color: #fcd34d; }
-.toast-info    { background: rgba(56, 189, 248, 0.14); border-color: rgba(56, 189, 248, 0.3); color: #7dd3fc; }
-
-.toast-content { flex: 1; min-width: 0; }
-.toast-title   { font-size: 0.8125rem; font-weight: 600; line-height: 1.3; }
-.toast-message { font-size: 0.75rem; opacity: 0.8; margin-top: 0.2rem; line-height: 1.4; }
-
-.toast-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  opacity: 0.5;
-  padding: 0;
-  color: inherit;
-  flex-shrink: 0;
-  transition: opacity var(--transition-fast);
-}
-.toast-close:hover { opacity: 1; }
-
-@keyframes toastIn {
-  from { opacity: 0; transform: translateX(110%); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-@keyframes toastOut {
-  from { opacity: 1; transform: translateX(0); max-height: 200px; margin-bottom: 0; }
-  to   { opacity: 0; transform: translateX(110%); max-height: 0; margin-bottom: -0.625rem; }
-}
-
-/* ── Scan Section ────────────────────────────────────────────────────────────── */
-
-.scan-wrapper {
-  position: relative;
-  display: inline-block;
-  border-radius: var(--border-radius-md);
-  overflow: hidden;
-  max-width: 100%;
-}
-
-.scan-overlay {
-  position: absolute;
-  inset: 0;
-  border: 2px solid var(--accent-color);
-  border-radius: var(--border-radius-md);
-  pointer-events: none;
-  animation: scanPulse 2s ease-in-out infinite;
-}
-
-@keyframes scanPulse {
-  0%, 100% { border-color: rgba(56, 189, 248, 0.25); box-shadow: inset 0 0 0 0 rgba(56, 189, 248, 0); }
-  50%       { border-color: rgba(56, 189, 248, 0.7);  box-shadow: inset 0 0 24px rgba(56, 189, 248, 0.08); }
-}
-
-.scan-line {
-  position: absolute;
-  left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent-color), transparent);
-  animation: scanLine 2.5s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes scanLine {
-  0%   { top: 0%; opacity: 0; }
-  5%   { opacity: 1; }
-  95%  { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
-}
-
-.scan-result-card {
-  display: none;
-  align-items: center;
-  gap: 0.875rem;
-  padding: 1rem 1.25rem;
-  border-radius: var(--border-radius-md);
-  border: 1px solid;
-  margin-top: 1rem;
-  animation: fadeIn 0.3s ease forwards;
-}
-
-.scan-result-card svg { width: 1.375rem; height: 1.375rem; flex-shrink: 0; }
-.scan-result-card-title { font-size: 0.9375rem; font-weight: 600; }
-.scan-result-card-sub   { font-size: 0.8125rem; opacity: 0.75; margin-top: 0.2rem; }
-
-.scan-result-success { background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.25); color: #6ee7b7; }
-.scan-result-warning { background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.25); color: #fcd34d; }
-.scan-result-info    { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.25); color: #7dd3fc; }
-.scan-result-error   { background: rgba(239, 68, 68, 0.1);  border-color: rgba(239, 68, 68, 0.25);  color: #fca5a5; }
-
-/* ── Capture Dots ────────────────────────────────────────────────────────────── */
-
-.capture-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.capture-dots {
-  display: flex;
-  gap: 0.375rem;
-  flex-wrap: wrap;
-}
-
-.capture-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  transition: all 0.2s ease;
-}
-
-.capture-dot.filled {
-  background: var(--success-color);
-  border-color: var(--success-color);
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
-}
-
-.capture-label {
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-}
-
-/* ── Login ───────────────────────────────────────────────────────────────────── */
-
-.login-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  padding: 2rem;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 400px;
-  padding: 2.5rem;
-}
-
-.login-header {
-  text-align: center;
-  margin-bottom: 2.25rem;
-}
-
-.login-logo { font-size: 2.5rem; margin-bottom: 0.75rem; }
-
-/* ── Animations ──────────────────────────────────────────────────────────────── */
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.animate-fade-in { animation: fadeIn 0.35s ease forwards; }
-
-/* ── Video ───────────────────────────────────────────────────────────────────── */
-
-video {
-  display: block;
-  border-radius: var(--border-radius-md);
-  background: rgba(0, 0, 0, 0.4);
-}
-
-/* ── Modal ───────────────────────────────────────────────────────────────────── */
-
-.modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: fadeIn 0.2s ease forwards;
-}
-
-.modal-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-}
-
-.modal-content {
-  position: relative;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid var(--card-border);
-  border-radius: var(--border-radius-lg);
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
-  padding: 1.5rem;
-  max-width: 420px;
-  width: 90%;
-  animation: modalSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-@keyframes modalSlide {
-  from { opacity: 0; transform: translateY(-40px) scale(0.95); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--card-border);
-}
-
-.modal-header h2 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  color: var(--text-secondary);
-  transition: color var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal-close:hover { color: var(--text-primary); }
-
-.modal-body {
-  margin-bottom: 1.5rem;
-  font-size: 0.9375rem;
-  line-height: 1.6;
-  color: var(--text-secondary);
-}
-
-.modal-footer {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: flex-end;
-}
-
-.modal-footer .btn {
-  flex: 0 1 auto;
-}
-
-/* ── User Actions ────────────────────────────────────────────────────────────── */
-
-.user-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-}
-
-.user-action-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0.375rem;
-  border-radius: var(--border-radius-sm);
-  color: var(--text-secondary);
-  transition: all var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.user-action-btn svg { width: 1rem; height: 1rem; }
-.user-action-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-}
-
-.user-action-btn.delete:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--danger-color);
-}
-
-/* ── Responsive ──────────────────────────────────────────────────────────────── */
-
-@media (max-width: 768px) {
-  .app-container { flex-direction: column; }
-
-  .sidebar {
-    width: 100%;
-    position: fixed;
-    bottom: 0;
-    z-index: 50;
-    border-right: none;
-    border-top: 1px solid var(--card-border);
-    padding: 0.75rem 1rem;
-    flex-direction: row;
-    justify-content: space-around;
-    background: rgba(15, 23, 42, 0.95);
-    backdrop-filter: blur(16px);
-  }
-
-  .logo-container { display: none; }
-
-  .nav-menu {
-    flex-direction: row;
-    width: 100%;
-    justify-content: space-around;
-    gap: 0;
-  }
-
-  .nav-item {
-    padding: 0.5rem;
-    flex-direction: column;
-    gap: 0.2rem;
-    font-size: 0.6875rem;
-    border-left: none !important;
-    padding-left: 0.5rem !important;
-  }
-
-  .nav-item.active {
-    border-left: none;
-    background: transparent;
-    color: var(--primary-color);
-  }
-
-  .main-content {
-    padding: 1.5rem 1rem;
-    padding-bottom: 6rem;
-  }
-
-  .header { flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
-  .stats-grid { grid-template-columns: 1fr 1fr; }
-  #toast-container { left: 1rem; right: 1rem; top: 1rem; }
-  .toast { min-width: unset; width: 100%; }
-}
-
-@media (max-width: 480px) {
-  .stats-grid { grid-template-columns: 1fr; }
-}
-
-
-================================================================================
-FILE: frontend/dashboard.html
+FILE: frontend/phase1-health.html
 ================================================================================
 
 <!DOCTYPE html>
@@ -2018,1280 +1128,301 @@ FILE: frontend/dashboard.html
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Attendance | Dashboard</title>
-    <link rel="stylesheet" href="css/style.css">
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <title>Phase 1 — API Health Check</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.25rem;
+            color: #38bdf8;
+        }
+
+        .subtitle {
+            color: #64748b;
+            font-size: 0.875rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            max-width: 640px;
+        }
+
+        .card h2 {
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            font-size: 0.8rem;
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.625rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.875rem;
+        }
+
+        .row:last-child { border-bottom: none; }
+
+        .label { color: #94a3b8; }
+
+        .value {
+            font-weight: 600;
+            font-family: monospace;
+        }
+
+        .ok    { color: #10b981; }
+        .warn  { color: #f59e0b; }
+        .error { color: #ef4444; }
+        .dim   { color: #64748b; }
+
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-ok    { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+        .badge-warn  { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+        .badge-error { background: rgba(239,68,68,0.15);  color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+        .badge-dim   { background: rgba(255,255,255,0.06); color: #64748b; border: 1px solid rgba(255,255,255,0.1); }
+
+        button {
+            background: #6366f1;
+            color: #fff;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+            transition: background 0.15s;
+        }
+
+        button:hover { background: #4f46e5; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        pre {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 1rem;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,0.2);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .timestamp { color: #64748b; font-size: 0.75rem; margin-top: 0.5rem; }
+    </style>
 </head>
 <body>
-    <div class="app-container">
+    <h1>Phase 1 — API Health Check</h1>
+    <p class="subtitle">Tests: <code>GET /api/health</code> &amp; <code>GET /api/stats/today</code></p>
 
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="logo-container">
-                <i data-lucide="scan-face" class="text-gradient" style="width: 28px; height: 28px;"></i>
-                <h2 style="font-size: 1.0625rem;">Smart Attend</h2>
-            </div>
-
-            <nav>
-                <ul class="nav-menu">
-                    <li>
-                        <a href="#" class="nav-item active" id="nav-dashboard">
-                            <i data-lucide="layout-dashboard"></i>
-                            Overview
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="nav-item" id="nav-attendance">
-                            <i data-lucide="scan-face"></i>
-                            Scan
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="nav-item" id="nav-registration">
-                            <i data-lucide="user-plus"></i>
-                            Register
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="nav-item" id="nav-users">
-                            <i data-lucide="users"></i>
-                            Users
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" class="nav-item" id="nav-logs">
-                            <i data-lucide="list"></i>
-                            Logs
-                        </a>
-                    </li>
-                    <li>
-                        <div class="nav-divider"></div>
-                        <a href="#" class="nav-item" id="logoutBtn" style="color: var(--danger-color);">
-                            <i data-lucide="log-out"></i>
-                            Logout
-                        </a>
-                    </li>
-                </ul>
-            </nav>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main-content overflow-y-auto">
-
-            <!-- Header -->
-            <header class="header">
-                <div>
-                    <h1 class="text-gradient">Dashboard</h1>
-                    <div class="header-meta">
-                        <p class="text-secondary" id="currentDate" style="font-size: 0.875rem;"></p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-4">
-                    <span id="apiStatus" class="badge">Connecting…</span>
-                </div>
-            </header>
-
-            <!-- ── Overview Section ──────────────────────────────────────── -->
-            <section id="section-dashboard" class="animate-fade-in">
-
-                <div class="stats-grid">
-                    <div class="glass-panel stat-card stat-accent-blue">
-                        <span class="stat-title">Registered Users</span>
-                        <div class="stat-body">
-                            <span class="stat-value" id="stat-total-users">—</span>
-                            <div class="stat-icon stat-icon-blue">
-                                <i data-lucide="users"></i>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="glass-panel stat-card stat-accent-green">
-                        <span class="stat-title">Present Today</span>
-                        <div class="stat-body">
-                            <span class="stat-value text-success" id="stat-present-today">—</span>
-                            <div class="stat-icon stat-icon-green">
-                                <i data-lucide="user-check"></i>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="glass-panel stat-card stat-accent-indigo">
-                        <span class="stat-title">Attendance Rate</span>
-                        <div class="stat-body">
-                            <span class="stat-value" id="stat-percent">—</span>
-                            <div class="stat-icon stat-icon-indigo">
-                                <i data-lucide="percent"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Today's Attendance -->
-                <div class="data-section glass-panel">
-                    <div class="section-header">
-                        <h3>Today's Attendance</h3>
-                        <button class="btn btn-outline" id="refreshTodayBtn" style="padding: 0.5rem 0.875rem; font-size: 0.8125rem;">
-                            <i data-lucide="refresh-cw" style="width: 0.875rem; height: 0.875rem;"></i>
-                            Refresh
-                        </button>
-                    </div>
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Name</th>
-                                    <th>Check-in Time</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody id="todayAttendanceTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ── Attendance Scan Section ───────────────────────────────── -->
-            <section id="section-attendance" class="animate-fade-in" style="display: none;">
-                <div class="data-section glass-panel">
-                    <div class="section-header">
-                        <div>
-                            <h3>Face Scan</h3>
-                            <p class="text-secondary" style="font-size: 0.8125rem; margin-top: 0.25rem;">Point camera at face to mark attendance</p>
-                        </div>
-                        <div id="scanStatusBadge" class="badge badge-info" style="display: none;">Scanning</div>
-                    </div>
-
-                    <div style="padding: 1.5rem;">
-                        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap;">
-                            <button type="button" id="startScanBtn" class="btn btn-primary">
-                                <i data-lucide="play"></i>
-                                Start Scan
-                            </button>
-                            <button type="button" id="stopScanBtn" class="btn btn-secondary" style="display: none;">
-                                <i data-lucide="square"></i>
-                                Stop
-                            </button>
-                        </div>
-
-                        <div class="scan-wrapper" id="scanWrapper" style="display: none;">
-                            <video id="attendanceVideo" width="640" height="480" autoplay playsinline></video>
-                            <div class="scan-overlay"></div>
-                            <div class="scan-line"></div>
-                        </div>
-
-                        <canvas id="attendanceCanvas" style="display: none;"></canvas>
-
-                        <div class="scan-result-card" id="scanResultCard" style="display:none;">
-                            <i data-lucide="info" style="width: 1.375rem; height: 1.375rem; flex-shrink: 0;"></i>
-                            <div>
-                                <div class="scan-result-card-title" id="scanResultTitle"></div>
-                                <div class="scan-result-card-sub" id="scanResultSub"></div>
-                            </div>
-                        </div>
-
-                        <div style="display: flex; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; flex-wrap: wrap;" id="scanButtonsWrapper" style="display: none;">
-                            <button type="button" id="scanAnotherBtn" class="btn btn-primary">
-                                <i data-lucide="redo-2"></i>
-                                Scan Another
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ── Registration Section ──────────────────────────────────── -->
-            <section id="section-registration" class="animate-fade-in" style="display: none;">
-                <div class="data-section glass-panel">
-                    <div class="section-header">
-                        <div>
-                            <h3>Register New User</h3>
-                            <p class="text-secondary" style="font-size: 0.8125rem; margin-top: 0.25rem;">Capture 10 face frames for accurate recognition</p>
-                        </div>
-                    </div>
-
-                    <div style="padding: 1.5rem;">
-                        <form id="registrationForm" style="max-width: 640px;">
-                            <div class="form-group">
-                                <label class="form-label" for="userName">Full Name</label>
-                                <input type="text" id="userName" class="form-control" placeholder="Enter name" required autocomplete="off">
-                            </div>
-
-                            <div style="display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
-                                <button type="button" id="startCameraBtn" class="btn btn-primary">
-                                    <i data-lucide="camera"></i>
-                                    Start Camera
-                                </button>
-                                <button type="button" id="captureBtn" class="btn btn-secondary" style="display: none;">
-                                    <i data-lucide="x"></i>
-                                    Stop Capture
-                                </button>
-                            </div>
-
-                            <div style="margin-bottom: 1.25rem; display: none;" id="videoWrapper">
-                                <video id="video" width="640" height="480" autoplay playsinline></video>
-                            </div>
-                            <canvas id="canvas" style="display: none;"></canvas>
-
-                            <div class="capture-progress" id="captureProgress" style="display: none;">
-                                <div class="capture-dots" id="captureDots"></div>
-                                <span class="capture-label" id="captureStatus">Captured: 0 / 10</span>
-                            </div>
-
-                            <button type="submit" class="btn btn-success" style="margin-top: 1.25rem;" id="registerSubmitBtn">
-                                <i data-lucide="user-plus"></i>
-                                Register User
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ── Users Section ─────────────────────────────────────────── -->
-            <section id="section-users" class="animate-fade-in" style="display: none;">
-                <div class="data-section glass-panel">
-                    <div class="section-header">
-                        <h3>Registered Users</h3>
-                        <span class="badge badge-info" id="usersCountBadge">—</span>
-                    </div>
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Name</th>
-                                    <th>Registered At</th>
-                                    <th style="width: 80px; text-align: center;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="usersTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-            <!-- ── Logs Section ──────────────────────────────────────────── -->
-            <section id="section-logs" class="animate-fade-in" style="display: none;">
-                <div class="data-section glass-panel">
-                    <div class="section-header">
-                        <h3>Attendance Logs</h3>
-                        <input type="date" id="logDateFilter" class="form-control"
-                            style="width: auto; padding: 0.4375rem 0.75rem; font-size: 0.8125rem; background: var(--bg-dark);">
-                    </div>
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Name</th>
-                                    <th>Date</th>
-                                    <th>Time</th>
-                                </tr>
-                            </thead>
-                            <tbody id="allLogsTableBody"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </section>
-
-        </main>
+    <!-- Test Controls -->
+    <div class="card">
+        <h2>Controls</h2>
+        <button id="btnHealth">Check Health</button>
+        <button id="btnStats">Get Today Stats</button>
+        <button id="btnBoth">Run Both</button>
+        <button id="btnClear" style="background: rgba(255,255,255,0.06); color: #94a3b8;">Clear</button>
     </div>
 
-    <!-- Toast container -->
-    <div id="toast-container" style="position: fixed; top: 1rem; right: 1rem; z-index: 1000; display: flex; flex-direction: column; gap: 0.5rem;"></div>
+    <!-- Health Result -->
+    <div class="card" id="healthCard" style="display:none;">
+        <h2>GET /api/health</h2>
 
-    <!-- Delete confirmation modal -->
-    <div id="deleteModal" class="modal" style="display: none;">
-        <div class="modal-overlay" id="deleteModalOverlay"></div>
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 style="color: var(--danger-color);">Delete User</h2>
-                <button class="modal-close" id="deleteModalClose" aria-label="Close">
-                    <i data-lucide="x" style="width: 1.25rem; height: 1.25rem;"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <p id="deleteModalMessage"></p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-outline" id="deleteModalCancel">Cancel</button>
-                <button type="button" class="btn btn-danger" id="deleteModalConfirm">
-                    <i data-lucide="trash-2"></i>
-                    Delete User
-                </button>
-            </div>
+        <div class="row">
+            <span class="label">HTTP Status</span>
+            <span id="h-http" class="value dim">—</span>
         </div>
-    </div>
-
-    <script src="js/api.js"></script>
-    <script src="js/dashboard.js"></script>
-    <script>lucide.createIcons();</script>
-</body>
-</html>
-
-
-================================================================================
-FILE: frontend/index.html
-================================================================================
-
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Attendance | Admin Login</title>
-    <link rel="stylesheet" href="css/style.css">
-    <!-- Lucide Icons for simple vector icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-</head>
-<body>
-    <div class="app-container">
-        <div class="login-container">
-            <div class="glass-panel login-card animate-fade-in">
-                <div class="login-header">
-                    <div class="login-logo text-gradient mb-4">
-                        <i data-lucide="scan-face" style="width: 48px; height: 48px;"></i>
-                    </div>
-                    <h2>Smart Attendance</h2>
-                    <p class="text-secondary mt-4">Login to access dashboard</p>
-                </div>
-                
-                <form id="loginForm">
-                    <div class="form-group" style="margin-bottom: 1.5rem;">
-                        <label class="form-label" for="username">Admin Username</label>
-                        <div style="position: relative;">
-                            <i data-lucide="user" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-secondary); width: 1.25rem; height: 1.25rem;"></i>
-                            <input type="text" id="username" class="form-control" style="padding-left: 3rem;" placeholder="admin" required autofocus>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group" style="margin-bottom: 2rem;">
-                        <label class="form-label" for="password">Password</label>
-                        <div style="position: relative;">
-                            <i data-lucide="lock" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-secondary); width: 1.25rem; height: 1.25rem;"></i>
-                            <input type="password" id="password" class="form-control" style="padding-left: 3rem;" placeholder="••••••••" required>
-                        </div>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary" style="width: 100%;">
-                        Sign In
-                        <i data-lucide="arrow-right" style="margin-left: 0.5rem; width: 1.25rem; height: 1.25rem;"></i>
-                    </button>
-                </form>
-
-                <div class="text-center mt-4" style="margin-top: 2rem; font-size: 0.875rem;">
-                    <p class="text-secondary" style="font-size: 0.75rem; opacity: 0.7;">
-                        Note: This is a prototype UI. Any generic credentials will work.
-                    </p>
-                </div>
-            </div>
+        <div class="row">
+            <span class="label">service</span>
+            <span id="h-service" class="value dim">—</span>
         </div>
+        <div class="row">
+            <span class="label">status</span>
+            <span id="h-status" class="value dim">—</span>
+        </div>
+        <div class="row">
+            <span class="label">model_ready</span>
+            <span id="h-model" class="value dim">—</span>
+        </div>
+
+        <pre id="h-raw"></pre>
+        <p class="timestamp" id="h-ts"></p>
     </div>
 
-    <script src="js/login.js"></script>
+    <!-- Stats Result -->
+    <div class="card" id="statsCard" style="display:none;">
+        <h2>GET /api/stats/today</h2>
+
+        <div class="row">
+            <span class="label">HTTP Status</span>
+            <span id="s-http" class="value dim">—</span>
+        </div>
+        <div class="row">
+            <span class="label">date</span>
+            <span id="s-date" class="value dim">—</span>
+        </div>
+        <div class="row">
+            <span class="label">total_users</span>
+            <span id="s-total" class="value dim">—</span>
+        </div>
+        <div class="row">
+            <span class="label">present_users</span>
+            <span id="s-present" class="value dim">—</span>
+        </div>
+        <div class="row">
+            <span class="label">attendance_percent</span>
+            <span id="s-pct" class="value dim">—</span>
+        </div>
+
+        <pre id="s-raw"></pre>
+        <p class="timestamp" id="s-ts"></p>
+    </div>
+
     <script>
-        // Initialize Lucide Icons
-        lucide.createIcons();
+        const BASE = 'http://127.0.0.1:8000/api';
+
+        function ts() {
+            return new Date().toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 2 });
+        }
+
+        function httpBadge(code) {
+            if (code >= 200 && code < 300) return `<span class="badge badge-ok">${code}</span>`;
+            if (code >= 400 && code < 500) return `<span class="badge badge-warn">${code}</span>`;
+            if (code >= 500) return `<span class="badge badge-error">${code}</span>`;
+            return `<span class="badge badge-dim">${code}</span>`;
+        }
+
+        function boolBadge(val) {
+            return val
+                ? `<span class="badge badge-ok">true</span>`
+                : `<span class="badge badge-warn">false</span>`;
+        }
+
+        // ── Health ──────────────────────────────────────────────────────────────
+        async function checkHealth() {
+            const btn = document.getElementById('btnHealth');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Checking…';
+
+            document.getElementById('healthCard').style.display = 'block';
+            document.getElementById('h-http').innerHTML = '<span class="badge badge-dim">…</span>';
+
+            try {
+                const res = await fetch(`${BASE}/health`);
+                const data = await res.json();
+
+                document.getElementById('h-http').innerHTML = httpBadge(res.status);
+                document.getElementById('h-service').textContent = data.service ?? '—';
+                document.getElementById('h-status').innerHTML =
+                    data.status === 'ok'
+                        ? `<span class="badge badge-ok">ok</span>`
+                        : `<span class="badge badge-error">${data.status}</span>`;
+                document.getElementById('h-model').innerHTML = boolBadge(data.model_ready);
+                document.getElementById('h-raw').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('h-ts').textContent = `Fetched at ${ts()}`;
+
+            } catch (err) {
+                document.getElementById('h-http').innerHTML = `<span class="badge badge-error">ERR</span>`;
+                document.getElementById('h-raw').textContent = `Network error:\n${err.message}\n\nIs the server running?\n  uvicorn api.server:app --reload --host 0.0.0.0 --port 8000`;
+                document.getElementById('h-ts').textContent = `Failed at ${ts()}`;
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Check Health';
+        }
+
+        // ── Stats ───────────────────────────────────────────────────────────────
+        async function checkStats() {
+            const btn = document.getElementById('btnStats');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Fetching…';
+
+            document.getElementById('statsCard').style.display = 'block';
+            document.getElementById('s-http').innerHTML = '<span class="badge badge-dim">…</span>';
+
+            try {
+                const res = await fetch(`${BASE}/stats/today`);
+                const data = await res.json();
+
+                document.getElementById('s-http').innerHTML = httpBadge(res.status);
+                document.getElementById('s-date').textContent = data.date ?? '—';
+                document.getElementById('s-total').textContent = data.total_users ?? '—';
+                document.getElementById('s-present').innerHTML =
+                    `<span class="${data.present_users > 0 ? 'ok' : 'dim'}">${data.present_users ?? '—'}</span>`;
+                document.getElementById('s-pct').innerHTML =
+                    `<span class="${data.attendance_percent > 0 ? 'ok' : 'dim'}">${data.attendance_percent ?? '—'}%</span>`;
+                document.getElementById('s-raw').textContent = JSON.stringify(data, null, 2);
+                document.getElementById('s-ts').textContent = `Fetched at ${ts()}`;
+
+            } catch (err) {
+                document.getElementById('s-http').innerHTML = `<span class="badge badge-error">ERR</span>`;
+                document.getElementById('s-raw').textContent = `Network error:\n${err.message}`;
+                document.getElementById('s-ts').textContent = `Failed at ${ts()}`;
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Get Today Stats';
+        }
+
+        // ── Wire up buttons ─────────────────────────────────────────────────────
+        document.getElementById('btnHealth').addEventListener('click', checkHealth);
+        document.getElementById('btnStats').addEventListener('click', checkStats);
+        document.getElementById('btnBoth').addEventListener('click', async () => {
+            await Promise.all([checkHealth(), checkStats()]);
+        });
+        document.getElementById('btnClear').addEventListener('click', () => {
+            document.getElementById('healthCard').style.display = 'none';
+            document.getElementById('statsCard').style.display = 'none';
+        });
+
+        // Auto-run on load
+        checkHealth();
+        checkStats();
     </script>
 </body>
 </html>
-
-
-================================================================================
-FILE: frontend/js/api.js
-================================================================================
-
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
-
-/**
- * Handle API interactions
- */
-const API = {
-    /**
-     * Get system health status
-     */
-    async getHealth() {
-        try {
-            const res = await fetch(`${API_BASE_URL}/health`);
-            if (!res.ok) throw new Error('API not reachable');
-            return await res.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            return { status: 'error', message: error.message };
-        }
-    },
-
-    /**
-     * Get today's attendance stats
-     */
-    async getStatsToday() {
-        try {
-            const res = await fetch(`${API_BASE_URL}/stats/today`);
-            if (!res.ok) throw new Error('Failed to fetch stats');
-            return await res.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            return null;
-        }
-    },
-
-    /**
-     * Get list of users
-     */
-    async getUsers() {
-        try {
-            const res = await fetch(`${API_BASE_URL}/users`);
-            if (!res.ok) throw new Error('Failed to fetch users');
-            return await res.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            return [];
-        }
-    },
-
-    /**
-     * Create a new user
-     */
-    async createUser(data) {
-        try {
-            const res = await fetch(`${API_BASE_URL}/users`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            if (!res.ok) throw new Error('Failed to create user');
-            return await res.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            return null;
-        }
-    },
-
-    /**
-     * Scan attendance from a captured image.
-     * Always returns an object — never null — so callers can inspect result.status.
-     * On network failure returns { status: 'network_error', message: '...' }.
-     * On API error returns  { status: 'api_error',     message: '...', http_status }.
-     */
-    async scanAttendance(imageData) {
-        let res;
-        try {
-            res = await fetch(`${API_BASE_URL}/attendance/scan`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: imageData })
-            });
-        } catch (networkErr) {
-            console.error('Network error in scanAttendance:', networkErr);
-            return { status: 'network_error', message: 'Cannot reach the server. Is it running?' };
-        }
-
-        let data;
-        try {
-            data = await res.json();
-        } catch {
-            return { status: 'api_error', message: `Server returned non-JSON (HTTP ${res.status})`, http_status: res.status };
-        }
-
-        if (!res.ok) {
-            console.warn('scanAttendance API error:', res.status, data);
-            return {
-                status: 'api_error',
-                message: data.error || `API error (HTTP ${res.status})`,
-                error_type: data.type || 'UnknownError',
-                http_status: res.status,
-            };
-        }
-
-        return data;
-    },
-
-    /**
-     * Get attendance records (optionally filter by date YYYY-MM-DD)
-     */
-    async getAttendance(date = null) {
-        try {
-            const url = date ? `${API_BASE_URL}/attendance?date=${date}` : `${API_BASE_URL}/attendance`;
-            const res = await fetch(url);
-            if (!res.ok) throw new Error('Failed to fetch attendance');
-            return await res.json();
-        } catch (error) {
-            console.error('API Error:', error);
-            return [];
-        }
-    },
-
-    /**
-     * Delete a user and cascade-delete embeddings + attendance records
-     */
-    async deleteUser(userId) {
-        try {
-            const res = await fetch(`${API_BASE_URL}/users/${userId}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-            });
-            if (!res.ok) throw new Error(`Failed to delete user (HTTP ${res.status})`);
-            return true;
-        } catch (error) {
-            console.error('API Error deleting user:', error);
-            return false;
-        }
-    }
-};
-
-window.API = API;
-
-
-================================================================================
-FILE: frontend/js/dashboard.js
-================================================================================
-
-document.addEventListener('DOMContentLoaded', () => {
-
-    // ── Auth guard ────────────────────────────────────────────────────────────
-    if (!sessionStorage.getItem('auth_token')) {
-        window.location.href = 'index.html';
-        return;
-    }
-
-    // ── Date header ───────────────────────────────────────────────────────────
-    const today = new Date();
-    // Use local date (not UTC) so it matches the server's datetime.now().date()
-    const todayStr = [
-        today.getFullYear(),
-        String(today.getMonth() + 1).padStart(2, '0'),
-        String(today.getDate()).padStart(2, '0'),
-    ].join('-');
-
-    document.getElementById('currentDate').textContent = today.toLocaleDateString('en-US', {
-        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-    });
-    document.getElementById('logDateFilter').value = todayStr;
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Utilities
-    // ──────────────────────────────────────────────────────────────────────────
-
-    /** Convert "HH:MM:SS" → "h:MM:SS AM/PM" */
-    function to12Hour(timeStr) {
-        if (!timeStr) return '—';
-        const parts = timeStr.split(':');
-        let h = parseInt(parts[0], 10);
-        const m = parts[1] || '00';
-        const s = parts[2] || '00';
-        const ampm = h >= 12 ? 'PM' : 'AM';
-        h = h % 12 || 12;
-        return `${h}:${m}:${s} ${ampm}`;
-    }
-
-    /** Generate a coloured avatar circle from a name string */
-    function avatarEl(name) {
-        const palette = ['#6366f1', '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6'];
-        const color = palette[(name || '').charCodeAt(0) % palette.length];
-        return `<span class="avatar" style="background:${color};">${(name || '?')[0].toUpperCase()}</span>`;
-    }
-
-    /** Skeleton loading rows for a table with `cols` columns */
-    function skeletonRows(cols, count = 4) {
-        const widths = [40, 55, 65, 70, 80];
-        return Array.from({ length: count }, () =>
-            `<tr>${Array.from({ length: cols }, () => {
-                const w = widths[Math.floor(Math.random() * widths.length)];
-                return `<td><span class="skeleton" style="width:${w}%;">&nbsp;</span></td>`;
-            }).join('')}</tr>`
-        ).join('');
-    }
-
-    /** Empty-state row for a table */
-    function emptyRow(cols, icon, message) {
-        return `<tr><td colspan="${cols}">
-            <div class="empty-state">
-                <div class="empty-state-icon"><i data-lucide="${icon}" style="width:2.25rem;height:2.25rem;"></i></div>
-                <p>${message}</p>
-            </div>
-        </td></tr>`;
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Toast notifications
-    // ──────────────────────────────────────────────────────────────────────────
-
-    const TOAST_ICONS = { success: 'check-circle', error: 'x-circle', warning: 'alert-triangle', info: 'info' };
-    let silentMode = false;  // Set to true to suppress notifications during scanning
-
-    function showToast(title, message = '', type = 'info', duration = 4000) {
-        if (silentMode && (type === 'info' || type === 'success')) return;  // Suppress non-critical toasts in silent mode
-        const container = document.getElementById('toast-container');
-        const el = document.createElement('div');
-        el.className = `toast toast-${type}`;
-        el.innerHTML = `
-            <i data-lucide="${TOAST_ICONS[type] || 'info'}"></i>
-            <div class="toast-content">
-                <div class="toast-title">${title}</div>
-                ${message ? `<div class="toast-message">${message}</div>` : ''}
-            </div>
-            <button class="toast-close" aria-label="Dismiss"><i data-lucide="x" style="width:0.875rem;height:0.875rem;"></i></button>
-        `;
-        el.querySelector('.toast-close').addEventListener('click', () => dismissToast(el));
-        container.appendChild(el);
-        lucide.createIcons();
-
-        const timer = setTimeout(() => dismissToast(el), duration);
-        el._timer = timer;
-    }
-
-    function dismissToast(el) {
-        clearTimeout(el._timer);
-        el.style.animation = 'toastOut 0.28s ease forwards';
-        setTimeout(() => el.remove(), 280);
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Scan result card
-    // ──────────────────────────────────────────────────────────────────────────
-
-    const scanResultCard  = document.getElementById('scanResultCard');
-    const scanResultTitle = document.getElementById('scanResultTitle');
-    const scanResultSub   = document.getElementById('scanResultSub');
-    const scanStatusBadge = document.getElementById('scanStatusBadge');
-
-    const SCAN_CONFIGS = {
-        marked:         { cls: 'scan-result-success', icon: 'check-circle',   title: 'Attendance Marked' },
-        already_marked: { cls: 'scan-result-warning', icon: 'clock',          title: 'Already Checked In' },
-        no_face:        { cls: 'scan-result-info',    icon: 'scan-face',      title: 'No Face Detected' },
-        no_match:       { cls: 'scan-result-error',   icon: 'user-x',         title: 'Not Recognised' },
-        api_error:      { cls: 'scan-result-error',   icon: 'server-crash',   title: 'Server Error' },
-        network_error:  { cls: 'scan-result-error',   icon: 'wifi-off',       title: 'Cannot Reach Server' },
-    };
-
-    function showScanResult(status, sub = '') {
-        const cfg = SCAN_CONFIGS[status] || { cls: 'scan-result-info', icon: 'info', title: status };
-        scanResultCard.className = `scan-result-card ${cfg.cls}`;
-        scanResultCard.style.display = 'flex';
-
-        // Lucide replaces <i data-lucide> with <svg> on first render, so we must
-        // replace the whole node — querying 'i[data-lucide]' returns null otherwise.
-        const existingIcon = scanResultCard.querySelector('i[data-lucide], svg');
-        const newIcon = document.createElement('i');
-        newIcon.setAttribute('data-lucide', cfg.icon);
-        newIcon.style.cssText = 'width:1.375rem;height:1.375rem;flex-shrink:0;';
-        if (existingIcon) {
-            existingIcon.replaceWith(newIcon);
-        } else {
-            scanResultCard.prepend(newIcon);
-        }
-
-        scanResultTitle.textContent = cfg.title;
-        scanResultSub.textContent = sub;
-        lucide.createIcons();
-    }
-
-    function hideScanResult() {
-        scanResultCard.style.display = 'none';
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Navigation
-    // ──────────────────────────────────────────────────────────────────────────
-
-    const sections = {
-        'nav-dashboard':  'section-dashboard',
-        'nav-attendance': 'section-attendance',
-        'nav-registration': 'section-registration',
-        'nav-users':      'section-users',
-        'nav-logs':       'section-logs',
-    };
-
-    function switchSection(targetNavId) {
-        // ↓ FIX: Don't reload if already on this section (prevents refresh spiral)
-        const currentActive = document.querySelector('.nav-item.active');
-        if (currentActive && currentActive.id === targetNavId) return;
-
-        // Stop scan when navigating away
-        if (targetNavId !== 'nav-attendance') stopAttendanceScan();
-
-        Object.entries(sections).forEach(([navId, sectionId]) => {
-            const link    = document.getElementById(navId);
-            const section = document.getElementById(sectionId);
-            const active  = navId === targetNavId;
-            link.classList.toggle('active', active);
-            section.style.display = active ? 'block' : 'none';
-        });
-
-        // Load data for the new section
-        if (targetNavId === 'nav-dashboard')    loadDashboardData();
-        if (targetNavId === 'nav-users')        loadUsersData();
-        if (targetNavId === 'nav-logs')         loadLogsData(document.getElementById('logDateFilter').value);
-        if (targetNavId === 'nav-attendance')   prepareAttendanceSection();
-    }
-
-    Object.keys(sections).forEach(navId => {
-        document.getElementById(navId).addEventListener('click', e => {
-            e.preventDefault();
-            switchSection(navId);
-        });
-    });
-
-    // ── Logout ────────────────────────────────────────────────────────────────
-    document.getElementById('logoutBtn').addEventListener('click', e => {
-        e.preventDefault();
-        sessionStorage.clear();
-        window.location.href = 'index.html';
-    });
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // API health
-    // ──────────────────────────────────────────────────────────────────────────
-
-    const apiStatusEl = document.getElementById('apiStatus');
-
-    async function checkApiHealth() {
-        const health = await window.API.getHealth();
-        if (health && health.status === 'ok') {
-            const modelReady = health.model_ready;
-            apiStatusEl.textContent = modelReady ? 'API Connected' : 'API Connected · Model Loading';
-            apiStatusEl.className   = modelReady ? 'badge badge-success' : 'badge badge-warning';
-        } else {
-            apiStatusEl.textContent = 'API Offline';
-            apiStatusEl.className   = 'badge badge-danger';
-        }
-    }
-
-    // Disabled: Health check polling was causing unnecessary refreshes
-    // setInterval(checkApiHealth, 30000);  // Re-enable if needed for debugging
-    checkApiHealth();  // Initial check only on load
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Overview — stats + today's attendance
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // FIX: Prevent concurrent loadDashboardData calls from causing race conditions
-    let isDashboardLoading = false;
-
-    const refreshBtn = document.getElementById('refreshTodayBtn');
-
-    refreshBtn.addEventListener('click', () => {
-        refreshBtn.classList.add('btn-spinning');
-        loadDashboardData().finally(() => refreshBtn.classList.remove('btn-spinning'));
-    });
-
-    async function loadDashboardData() {
-        // FIX: Prevent overlapping calls from making duplicate API requests
-        if (isDashboardLoading) return;
-        isDashboardLoading = true;
-
-        try {
-            const [stats, attendance] = await Promise.all([
-                window.API.getStatsToday(),
-                window.API.getAttendance(todayStr),
-            ]);
-
-            if (stats) {
-                document.getElementById('stat-total-users').textContent   = stats.total_users;
-                document.getElementById('stat-present-today').textContent = stats.present_users;
-                document.getElementById('stat-percent').textContent       = `${stats.attendance_percent}%`;
-            }
-
-            const tbody = document.getElementById('todayAttendanceTableBody');
-
-            if (!attendance || attendance.length === 0) {
-                tbody.innerHTML = emptyRow(4, 'calendar-x', 'No attendance recorded today.');
-                lucide.createIcons();
-                return;
-            }
-
-            tbody.innerHTML = attendance.map(r => `
-                <tr>
-                    <td><span style="color:var(--text-secondary);font-size:0.8125rem;">#${r.user_id}</span></td>
-                    <td><div class="user-cell">${avatarEl(r.name)}<span style="font-weight:500;">${r.name}</span></div></td>
-                    <td style="font-variant-numeric:tabular-nums;">${to12Hour(r.time)}</td>
-                    <td><span class="badge badge-success"><i data-lucide="check" style="width:0.7rem;height:0.7rem;"></i>Present</span></td>
-                </tr>
-            `).join('');
-            lucide.createIcons();
-        } finally {
-            isDashboardLoading = false;
-        }
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Users table
-    // ──────────────────────────────────────────────────────────────────────────
-
-    async function loadUsersData() {
-        const tbody = document.getElementById('usersTableBody');
-        tbody.innerHTML = skeletonRows(4);
-
-        const users = await window.API.getUsers();
-        document.getElementById('usersCountBadge').textContent = users ? `${users.length} users` : '—';
-
-        if (!users || users.length === 0) {
-            tbody.innerHTML = emptyRow(4, 'users', 'No users registered yet.');
-            lucide.createIcons();
-            return;
-        }
-
-        tbody.innerHTML = users.map(u => {
-            const ts  = u.created_at.replace(' ', 'T');
-            const dt  = new Date(ts);
-            const fmt = isNaN(dt.getTime()) ? u.created_at : dt.toLocaleString('en-US', {
-                year: 'numeric', month: 'short', day: 'numeric',
-                hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
-            });
-            return `
-                <tr>
-                    <td><span style="color:var(--text-secondary);font-size:0.8125rem;">#${u.id}</span></td>
-                    <td><div class="user-cell">${avatarEl(u.name)}<span style="font-weight:500;">${u.name}</span></div></td>
-                    <td style="color:var(--text-secondary);font-size:0.8125rem;">${fmt}</td>
-                    <td style="text-align:center;">
-                        <div class="user-actions">
-                            <button class="user-action-btn delete" data-user-id="${u.id}" data-user-name="${u.name}" title="Delete user" aria-label="Delete">
-                                <i data-lucide="trash-2"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `;
-        }).join('');
-        lucide.createIcons();
-        attachDeleteListeners();
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Logs table
-    // ──────────────────────────────────────────────────────────────────────────
-
-    document.getElementById('logDateFilter').addEventListener('change', e => loadLogsData(e.target.value));
-
-    async function loadLogsData(date) {
-        const tbody = document.getElementById('allLogsTableBody');
-        tbody.innerHTML = skeletonRows(4);
-
-        const logs = await window.API.getAttendance(date);
-
-        if (!logs || logs.length === 0) {
-            tbody.innerHTML = emptyRow(4, 'calendar-x', `No records for ${date}.`);
-            lucide.createIcons();
-            return;
-        }
-
-        tbody.innerHTML = logs.map(r => `
-            <tr>
-                <td><span style="color:var(--text-secondary);font-size:0.8125rem;">#${r.id}</span></td>
-                <td><div class="user-cell">${avatarEl(r.name)}<span style="font-weight:500;">${r.name}</span></div></td>
-                <td style="color:var(--text-secondary);">${r.date}</td>
-                <td style="font-variant-numeric:tabular-nums;">${to12Hour(r.time)}</td>
-            </tr>
-        `).join('');
-        lucide.createIcons();
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Attendance Scan
-    // ──────────────────────────────────────────────────────────────────────────
-
-    const attendanceVideo  = document.getElementById('attendanceVideo');
-    const attendanceCanvas = document.getElementById('attendanceCanvas');
-    const startScanBtn     = document.getElementById('startScanBtn');
-    const stopScanBtn      = document.getElementById('stopScanBtn');
-    const scanWrapper      = document.getElementById('scanWrapper');
-
-    let attendanceStream   = null;
-    let attendanceInterval = null;
-    let scanningActive     = false;
-
-    function prepareAttendanceSection() {
-        hideScanResult();
-        stopAttendanceScan();
-        scanStatusBadge.style.display = 'none';
-    }
-
-    startScanBtn.addEventListener('click', async () => {
-        if (scanningActive) return;
-        hideScanResult();
-
-        try {
-            attendanceStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            attendanceVideo.srcObject = attendanceStream;
-            await attendanceVideo.play();
-        } catch (err) {
-            let errMsg = 'Could not access camera. Check browser permissions.';
-            // Improved error handling for different permission scenarios
-            if (err.name === 'NotAllowedError') {
-                errMsg = '❌ Camera access denied.\nCheck: Settings → Privacy → Camera.';
-            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                errMsg = '❌ No camera found. On Linux:\nRun: ls /dev/video*';
-            } else if (err.name === 'PermissionDeniedError') {
-                errMsg = '❌ Permission denied.\n\nOn Arch Linux:\n1. Run: sudo usermod -aG video $USER\n2. Reboot your system\n3. Try again';
-            }
-            showToast('Camera Error', errMsg, 'error', 6000);
-            return;
-        }
-
-        scanWrapper.style.display = 'inline-block';
-        startScanBtn.style.display = 'none';
-        stopScanBtn.style.display  = 'inline-flex';
-        scanStatusBadge.style.display = 'inline-flex';
-        scanningActive = true;
-
-        // Poll every 1.5 s
-        attendanceInterval = setInterval(() => {
-            if (scanningActive) scanFrame();
-        }, 1500);
-
-        scanFrame(); // immediate first scan
-    });
-
-    stopScanBtn.addEventListener('click', stopAttendanceScan);
-
-    async function scanFrame() {
-        if (!attendanceVideo.videoWidth || !attendanceVideo.videoHeight || !scanningActive) return;
-
-        const ctx = attendanceCanvas.getContext('2d');
-        attendanceCanvas.width  = attendanceVideo.videoWidth;
-        attendanceCanvas.height = attendanceVideo.videoHeight;
-        ctx.drawImage(attendanceVideo, 0, 0);
-
-        const result = await window.API.scanAttendance(attendanceCanvas.toDataURL('image/jpeg'));
-
-        // Network or server-side error — surface the real message
-        if (!result || result.status === 'network_error') {
-            showScanResult('network_error', (result && result.message) || 'Cannot reach the server.');
-            return;
-        }
-
-        if (result.status === 'api_error') {
-            // 503 = model still loading
-            const msg = result.http_status === 503
-                ? 'Face recognition model is still loading. Wait a moment and retry.'
-                : result.message || 'An API error occurred.';
-            showScanResult('api_error', msg);
-            return;
-        }
-
-        if (result.status === 'marked') {
-            showScanResult('marked', `${result.name} · ${to12Hour(result.time)}`);
-            if (!silentMode) showToast('Attendance Marked', `${result.name} checked in at ${to12Hour(result.time)}.`, 'success');
-            stopAttendanceScan();
-            document.getElementById('scanButtonsWrapper').style.display = 'flex';
-            return;
-        }
-
-        if (result.status === 'already_marked') {
-            showScanResult('already_marked', `${result.name} · Checked in at ${to12Hour(result.time)}`);
-            stopAttendanceScan();
-            return;
-        }
-
-        if (result.status === 'no_face') {
-            showScanResult('no_face', result.message || 'Please look directly at the camera.');
-            return;
-        }
-
-        if (result.status === 'no_match') {
-            showScanResult('no_match', 'Face not recognised. Register this user first.');
-            return;
-        }
-
-        // Fallback for unexpected statuses
-        showScanResult('no_face', result.message || 'Unexpected response from server.');
-    }
-
-    function stopAttendanceScan() {
-        scanningActive = false;
-        clearInterval(attendanceInterval);
-        attendanceInterval = null;
-
-        if (attendanceStream) {
-            attendanceStream.getTracks().forEach(t => t.stop());
-            attendanceStream = null;
-            attendanceVideo.srcObject = null;
-        }
-
-        scanWrapper.style.display  = 'none';
-        startScanBtn.style.display = 'inline-flex';
-        stopScanBtn.style.display  = 'none';
-        scanStatusBadge.style.display = 'none';
-        document.getElementById('scanButtonsWrapper').style.display = 'none';
-    }
-
-    // Scan Another button to restart without leaving section
-    document.getElementById('scanAnotherBtn')?.addEventListener('click', () => {
-        hideScanResult();
-        document.getElementById('scanButtonsWrapper').style.display = 'none';
-        startScanBtn.click();
-    });
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Registration
-    // ──────────────────────────────────────────────────────────────────────────
-
-    const video          = document.getElementById('video');
-    const canvas         = document.getElementById('canvas');
-    const videoWrapper   = document.getElementById('videoWrapper');
-    const startCameraBtn = document.getElementById('startCameraBtn');
-    const captureBtn     = document.getElementById('captureBtn');
-    const captureProgress = document.getElementById('captureProgress');
-    const captureDotsEl  = document.getElementById('captureDots');
-    const captureStatus  = document.getElementById('captureStatus');
-    const registerForm   = document.getElementById('registrationForm');
-
-    const MAX_CAPTURES   = 10;
-    let capturedImages   = [];
-    let regStream        = null;
-    let captureInterval  = null;
-
-    function renderCaptureDots(filled) {
-        captureDotsEl.innerHTML = Array.from({ length: MAX_CAPTURES }, (_, i) =>
-            `<span class="capture-dot ${i < filled ? 'filled' : ''}"></span>`
-        ).join('');
-        captureStatus.textContent = `${filled} of ${MAX_CAPTURES} frames captured`;
-    }
-
-    startCameraBtn.addEventListener('click', async () => {
-        clearInterval(captureInterval);
-        capturedImages = [];
-        renderCaptureDots(0);
-
-        try {
-            regStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = regStream;
-            videoWrapper.style.display = 'block';
-            captureProgress.style.display = 'flex';
-            captureBtn.style.display = 'inline-flex';
-            captureBtn.disabled = false;
-            captureBtn.innerHTML = '<i data-lucide="x"></i> Stop Capture';
-            lucide.createIcons();
-            await video.play();
-        } catch (err) {
-            let errMsg = 'Could not access camera. Check browser permissions.';
-            if (err.name === 'NotAllowedError') {
-                errMsg = '❌ Camera access denied.\nCheck: Settings → Privacy → Camera.';
-            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                errMsg = '❌ No camera found. On Linux:\nRun: ls /dev/video*';
-            } else if (err.name === 'PermissionDeniedError') {
-                errMsg = '❌ Permission denied.\n\nOn Arch Linux:\n1. Run: sudo usermod -aG video $USER\n2. Reboot your system\n3. Try again';
-            }
-            showToast('Camera Error', errMsg, 'error', 6000);
-            return;
-        }
-
-        // Wait for video dimensions to be ready
-        await new Promise(resolve => {
-            if (video.videoWidth > 0) return resolve();
-            video.addEventListener('loadedmetadata', resolve, { once: true });
-            setTimeout(resolve, 1200);
-        });
-
-        captureInterval = setInterval(() => {
-            if (capturedImages.length >= MAX_CAPTURES) {
-                clearInterval(captureInterval);
-                captureBtn.innerHTML = '<i data-lucide="check"></i> Captured';
-                captureBtn.disabled = true;
-                lucide.createIcons();
-                return;
-            }
-            captureFrame();
-        }, 900);
-    });
-
-    captureBtn.addEventListener('click', () => {
-        clearInterval(captureInterval);
-        captureBtn.innerHTML = '<i data-lucide="square"></i> Stopped';
-        captureBtn.disabled = true;
-        lucide.createIcons();
-    });
-
-    function captureFrame() {
-        if (!video.videoWidth || !video.videoHeight) return;
-        const ctx = canvas.getContext('2d');
-        canvas.width  = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0);
-        capturedImages.push(canvas.toDataURL('image/jpeg'));
-        renderCaptureDots(capturedImages.length);
-    }
-
-    registerForm.addEventListener('submit', async e => {
-        e.preventDefault();
-        clearInterval(captureInterval);
-
-        const name = document.getElementById('userName').value.trim();
-        if (!name) {
-            showToast('Missing Name', 'Please enter a name before registering.', 'warning');
-            return;
-        }
-        if (capturedImages.length === 0) {
-            showToast('No Images', 'Start the camera and capture at least one frame.', 'warning');
-            return;
-        }
-
-        const submitBtn = document.getElementById('registerSubmitBtn');
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i data-lucide="loader"></i> Registering…';
-        lucide.createIcons();
-
-        try {
-            const res = await window.API.createUser({ name, images: capturedImages });
-
-            if (res && res.id) {
-                const embMsg = res.embeddings_stored > 0
-                    ? `${res.embeddings_stored} face embeddings stored.`
-                    : 'No face embeddings — retake with better lighting.';
-                showToast('User Registered', `${res.name} · ${embMsg}`, res.embeddings_stored > 0 ? 'success' : 'warning');
-
-                // Reset form
-                registerForm.reset();
-                capturedImages = [];
-                renderCaptureDots(0);
-                captureProgress.style.display = 'none';
-                videoWrapper.style.display    = 'none';
-                captureBtn.style.display      = 'none';
-
-                if (regStream) {
-                    regStream.getTracks().forEach(t => t.stop());
-                    regStream = null;
-                    video.srcObject = null;
-                }
-            } else {
-                showToast('Registration Failed', 'Server returned an unexpected response.', 'error');
-            }
-        } catch (err) {
-            showToast('Registration Error', err.message || 'Unknown error occurred.', 'error');
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i data-lucide="user-plus"></i> Register User';
-            lucide.createIcons();
-
-            // FIX: Explicitly switch back to dashboard safely after registration completes
-            // This ensures we use our 'already active' check and prevents redundant reloads
-            setTimeout(() => {
-                switchSection('nav-dashboard');
-            }, 1500);
-        }
-    });
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Delete User Modal
-    // ──────────────────────────────────────────────────────────────────────────
-
-    const deleteModal = document.getElementById('deleteModal');
-    const deleteModalOverlay = document.getElementById('deleteModalOverlay');
-    const deleteModalMessage = document.getElementById('deleteModalMessage');
-    const deleteModalClose = document.getElementById('deleteModalClose');
-    const deleteModalCancel = document.getElementById('deleteModalCancel');
-    const deleteModalConfirm = document.getElementById('deleteModalConfirm');
-
-    let pendingDeleteUserId = null;
-    let pendingDeleteUserName = null;
-
-    function openDeleteModal(userId, userName) {
-        pendingDeleteUserId = userId;
-        pendingDeleteUserName = userName;
-        deleteModalMessage.textContent = `Delete ${userName}? This will remove all attendance records and cannot be undone.`;
-        deleteModal.style.display = 'flex';
-    }
-
-    function closeDeleteModal() {
-        deleteModal.style.display = 'none';
-        pendingDeleteUserId = null;
-        pendingDeleteUserName = null;
-    }
-
-    deleteModalOverlay.addEventListener('click', closeDeleteModal);
-    deleteModalClose.addEventListener('click', closeDeleteModal);
-    deleteModalCancel.addEventListener('click', closeDeleteModal);
-
-    deleteModalConfirm.addEventListener('click', async () => {
-        if (!pendingDeleteUserId) return;
-        deleteModalConfirm.disabled = true;
-        deleteModalConfirm.innerHTML = '<i data-lucide="loader"></i> Deleting…';
-        lucide.createIcons();
-
-        const success = await window.API.deleteUser(pendingDeleteUserId);
-        if (success) {
-            showToast('User Deleted', `${pendingDeleteUserName} has been removed.`, 'success');
-            closeDeleteModal();
-            loadUsersData();
-        } else {
-            showToast('Delete Failed', 'Could not delete user. Please try again.', 'error');
-        }
-
-        deleteModalConfirm.disabled = false;
-        deleteModalConfirm.innerHTML = '<i data-lucide="trash-2"></i> Delete User';
-        lucide.createIcons();
-    });
-
-    function attachDeleteListeners() {
-        document.querySelectorAll('.user-action-btn.delete').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const userId = btn.getAttribute('data-user-id');
-                const userName = btn.getAttribute('data-user-name');
-                openDeleteModal(parseInt(userId), userName);
-            });
-        });
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Init
-    // ──────────────────────────────────────────────────────────────────────────
-
-    checkApiHealth();
-    loadDashboardData();
-
-    // Show skeleton on initial table loads so they don't flash "undefined"
-    document.getElementById('todayAttendanceTableBody').innerHTML = skeletonRows(4);
-    lucide.createIcons();
-});
-
-
-================================================================================
-FILE: frontend/js/login.js
-================================================================================
-
-document.addEventListener('DOMContentLoaded', () => {
-    const loginForm = document.getElementById('loginForm');
-    
-    // Check if already 'logged in' (mock)
-    if (sessionStorage.getItem('auth_token')) {
-        window.location.href = 'dashboard.html';
-    }
-
-    loginForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
-        const btn = loginForm.querySelector('button[type="submit"]');
-
-        if (username && password) {
-            // Show loading state
-            const originalContent = btn.innerHTML;
-            btn.innerHTML = '<span style="animation: pulse 1.5s infinite;">Authenticating...</span>';
-            btn.disabled = true;
-
-            // Mock authentication delay
-            setTimeout(() => {
-                // Set mock JWT token
-                sessionStorage.setItem('auth_token', 'mock_jwt_token_for_prototype');
-                sessionStorage.setItem('admin_user', username);
-                
-                // Redirect to dashboard
-                window.location.href = 'dashboard.html';
-            }, 800);
-        }
-    });
-});
-
-// Simple pulse animation for loading state
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes pulse {
-        0% { opacity: 0.6; }
-        50% { opacity: 1; }
-        100% { opacity: 0.6; }
-    }
-`;
-document.head.appendChild(style);
 
 
 ================================================================================
@@ -3665,5 +1796,5 @@ class FaceEmbedder:
 
 
 ================================================================================
-SUMMARY: 15 Python files extracted
+SUMMARY: 10 Python files extracted
 ================================================================================

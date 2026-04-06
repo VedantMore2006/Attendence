@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 3 — Attendance Scanning</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            background: rgba(15, 23, 42, 0.98);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            color: #38bdf8;
+        }
+
+        .header-stats {
+            display: flex;
+            gap: 2rem;
+            font-size: 0.95rem;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .main-content {
+            display: flex;
+            flex: 1;
+            gap: 1rem;
+            padding: 1rem;
+            overflow: hidden;
+        }
+
+        .camera-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            min-width: 0;
+        }
+
+        .camera-container {
+            flex: 1;
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid rgba(56, 189, 248, 0.2);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 75%;
+            height: 75%;
+            border: 3px solid rgba(56, 189, 248, 0.4);
+            border-radius: 12px;
+            pointer-events: none;
+            box-shadow: inset 0 0 20px rgba(56, 189, 248, 0.1);
+        }
+
+        .video-overlay.face-detected {
+            border-color: #10b981;
+            box-shadow: inset 0 0 20px rgba(16, 185, 129, 0.2), 0 0 30px rgba(16, 185, 129, 0.3);
+        }
+
+        .camera-controls {
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #38bdf8, #3b82f6);
+            color: #fff;
+            flex: 1;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            flex: 1;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-small {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            flex: 0 1 auto;
+        }
+
+        .sidebar {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            overflow-y: auto;
+        }
+
+        .panel {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .panel h2 {
+            font-size: 1.05rem;
+            color: #38bdf8;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-display {
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .status-display.waiting {
+            background: rgba(96, 165, 250, 0.1);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            color: #93c5fd;
+        }
+
+        .status-display.scanning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fcd34d;
+        }
+
+        .status-display.marked {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #86efac;
+        }
+
+        .status-display.already-marked {
+            background: rgba(100, 116, 139, 0.2);
+            border: 1px solid rgba(100, 116, 139, 0.4);
+            color: #cbd5e1;
+        }
+
+        .status-display.no-face {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: #fcd34d;
+        }
+
+        .status-display.no-match {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .scan-result {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: none;
+        }
+
+        .scan-result.visible {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .result-user {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 0.5rem;
+        }
+
+        .result-detail {
+            font-size: 0.85rem;
+            color: #cbd5e1;
+            margin-bottom: 0.25rem;
+        }
+
+        .result-confidence {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+
+        .manual-mark-section {
+            display: none;
+        }
+
+        .manual-mark-section.visible {
+            display: block;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 0.625rem;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #f1f5f9;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #38bdf8;
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        .recent-scans {
+            max-height: 100%;
+            overflow-y: auto;
+        }
+
+        .scan-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .scan-item.marked {
+            border-color: rgba(16, 185, 129, 0.3);
+            background: rgba(16, 185, 129, 0.08);
+        }
+
+        .scan-item.already {
+            border-color: rgba(100, 116, 139, 0.3);
+            background: rgba(100, 116, 139, 0.08);
+        }
+
+        .scan-item-name {
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 0.25rem;
+        }
+
+        .scan-item-time {
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .header-nav {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .btn-nav {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+            background: rgba(255, 255, 255, 0.1);
+            color: #94a3b8;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            text-decoration: none;
+        }
+
+        .btn-nav:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                flex-direction: row;
+                height: auto;
+                max-height: 200px;
+            }
+
+            .panel {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .header-stats {
+                gap: 1rem;
+                font-size: 0.85rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            .header h1 {
+                font-size: 1.2rem;
+            }
+
+            .main-content {
+                gap: 0.5rem;
+                padding: 0.5rem;
+            }
+
+            .panel {
+                padding: 1rem;
+            }
+
+            .camera-controls {
+                flex-wrap: wrap;
+            }
+
+            button {
+                padding: 0.6rem 1rem;
+                font-size: 0.85rem;
+            }
+        }
+
+        .empty-message {
+            text-align: center;
+            color: #64748b;
+            padding: 1rem;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header with Stats -->
+    <div class="header">
+        <h1>📹 Attendance Scan</h1>
+        <div class="header-stats">
+            <div class="stat-item">
+                <div class="stat-label">Present Today</div>
+                <div class="stat-value" id="presentToday">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Total Users</div>
+                <div class="stat-value" id="totalUsers">0</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Attendance %</div>
+                <div class="stat-value" id="attendancePercent">0%</div>
+            </div>
+        </div>
+        <div class="header-nav">
+            <a href="phase2-registration.html" class="btn-nav">← Register</a>
+            <a href="phase4-dashboard.html" class="btn-nav">Dashboard →</a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Camera Section (Left) -->
+        <div class="camera-section">
+            <div class="camera-container">
+                <video id="scanCamera" playsinline autoplay muted></video>
+                <div class="video-overlay" id="videoOverlay"></div>
+            </div>
+
+            <div class="camera-controls">
+                <button class="btn-primary" onclick="startScanning()">▶ Start Scan</button>
+                <button class="btn-secondary" onclick="stopScanning()" style="display:none;" id="btn-stop">⏹ Stop Scan</button>
+                <button class="btn-danger btn-small" onclick="goBack()">Back</button>
+            </div>
+        </div>
+
+        <!-- Sidebar (Right) -->
+        <div class="sidebar">
+            <!-- Status Panel -->
+            <div class="panel">
+                <h2>📊 Scan Status</h2>
+                <div class="status-display waiting" id="statusDisplay">
+                    Click "Start Scan" to begin
+                </div>
+
+                <div class="scan-result" id="scanResult"></div>
+
+                <div class="manual-mark-section" id="manualMarkSection">
+                    <h3 style="font-size: 0.95rem; color: #cbd5e1; margin-bottom: 0.75rem;">Manual Mark</h3>
+                    <input type="number" id="manualUserID" placeholder="User ID" />
+                    <button class="btn-primary btn-small" style="width: 100%;" onclick="markManually()">Mark Attendance</button>
+                </div>
+            </div>
+
+            <!-- Recent Scans Panel -->
+            <div class="panel">
+                <h2>📋 Recent Scans</h2>
+                <div class="recent-scans" id="recentScans">
+                    <div class="empty-message">No scans yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:8000/api';
+        let mediaStream = null;
+        let isScanning = false;
+        let scanInterval = null;
+        let lastScans = [];
+        let statsCache = { total: 0, present: 0, percent: 0 };
+
+        // ──────────────────────────────────────────────────────────────────────
+        // INITIALIZATION
+        // ──────────────────────────────────────────────────────────────────────
+
+        async function startScanning() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+
+                const video = document.getElementById('scanCamera');
+                video.srcObject = mediaStream;
+
+                document.querySelector('.btn-primary').style.display = 'none';
+                document.getElementById('btn-stop').style.display = 'block';
+
+                isScanning = true;
+                updateStatus('scanning', 'Scanning...');
+
+                // Scan every 2 seconds
+                scanInterval = setInterval(scanFrame, 2000);
+
+                // Load initial stats
+                updateStats();
+            } catch (error) {
+                alert('Camera error: ' + error.message);
+            }
+        }
+
+        function stopScanning() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            
+            if (scanInterval) {
+                clearInterval(scanInterval);
+                scanInterval = null;
+            }
+
+            isScanning = false;
+            document.querySelector('.btn-primary').style.display = 'block';
+            document.getElementById('btn-stop').style.display = 'none';
+
+            updateStatus('waiting', 'Click "Start Scan" to begin');
+        }
+
+        function goBack() {
+            stopScanning();
+            window.location.href = 'phase2-registration.html';
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // FACE SCANNING
+        // ──────────────────────────────────────────────────────────────────────
+
+        async function scanFrame() {
+            const video = document.getElementById('scanCamera');
+            
+            if (!video.srcObject || !isScanning) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+
+            const frameBase64 = canvas.toDataURL('image/jpeg', 0.85);
+
+            try {
+                const response = await fetch(`${API_BASE}/attendance/scan`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: frameBase64 })
+                });
+
+                if (response.status === 200) {
+                    const data = await response.json();
+                    handleScanResult(data);
+                } else if (response.status === 503) {
+                    updateStatus('no-face', '⚠️ Model not ready');
+                    document.getElementById('manualMarkSection').classList.add('visible');
+                }
+            } catch (error) {
+                console.error('Scan error:', error);
+            }
+        }
+
+        function handleScanResult(data) {
+            const statusMap = {
+                marked: { class: 'marked', icon: '✓' },
+                already_marked: { class: 'already-marked', icon: 'ℹ️' },
+                no_face: { class: 'no-face', icon: '⚠️' },
+                no_match: { class: 'no-match', icon: '✗' }
+            };
+
+            const statusInfo = statusMap[data.status] || statusMap.no_face;
+
+            if (data.status === 'marked' || data.status === 'already_marked') {
+                updateStatus(statusInfo.class, data.message);
+                showScanResult(data);
+                addRecentScan(data);
+                updateStats();
+
+                if (data.status === 'marked') {
+                    playSound('success');
+                }
+            } else {
+                updateStatus(statusInfo.class, data.message);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // UI UPDATES
+        // ──────────────────────────────────────────────────────────────────────
+
+        function updateStatus(statusClass, message) {
+            const display = document.getElementById('statusDisplay');
+            display.className = `status-display ${statusClass}`;
+            
+            const icons = {
+                waiting: 'Click "Start Scan" to begin',
+                scanning: '<span class="spinner"></span>Scanning...',
+                marked: `✓ ${message}`,
+                'already-marked': `ℹ️ ${message}`,
+                'no-face': `⚠️ ${message}`,
+                'no-match': `✗ ${message}`
+            };
+
+            display.innerHTML = icons[statusClass] || message;
+        }
+
+        function showScanResult(data) {
+            const resultBox = document.getElementById('scanResult');
+            
+            if (data.status === 'no_face' || data.status === 'no_match') {
+                resultBox.classList.remove('visible');
+                return;
+            }
+
+            resultBox.innerHTML = `
+                <div class="result-user">${data.name}</div>
+                <div class="result-detail">📍 User ID: ${data.user_id}</div>
+                <div class="result-detail">🕐 ${data.time}</div>
+                ${data.confidence ? `<div class="result-confidence">Confidence: ${(data.confidence * 100).toFixed(1)}%</div>` : ''}
+            `;
+            resultBox.classList.add('visible');
+        }
+
+        function addRecentScan(data) {
+            lastScans.unshift({
+                name: data.name,
+                time: data.time,
+                status: data.status
+            });
+
+            if (lastScans.length > 10) {
+                lastScans.pop();
+            }
+
+            updateRecentScansList();
+        }
+
+        function updateRecentScansList() {
+            const scansList = document.getElementById('recentScans');
+
+            if (lastScans.length === 0) {
+                scansList.innerHTML = '<div class="empty-message">No scans yet</div>';
+                return;
+            }
+
+            scansList.innerHTML = lastScans.map(scan => `
+                <div class="scan-item ${scan.status === 'marked' ? 'marked' : 'already'}">
+                    <div class="scan-item-name">${scan.name}</div>
+                    <div class="scan-item-time">${scan.time}</div>
+                </div>
+            `).join('');
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // STATS & MANUAL MARK
+        // ──────────────────────────────────────────────────────────────────────
+
+        async function updateStats() {
+            try {
+                const response = await fetch(`${API_BASE}/stats/today`);
+                const data = await response.json();
+
+                statsCache = {
+                    total: data.total_users,
+                    present: data.present_users,
+                    percent: data.attendance_percent
+                };
+
+                document.getElementById('totalUsers').textContent = data.total_users;
+                document.getElementById('presentToday').textContent = data.present_users;
+                document.getElementById('attendancePercent').textContent = data.attendance_percent.toFixed(1) + '%';
+            } catch (error) {
+                console.error('Stats error:', error);
+            }
+        }
+
+        async function markManually() {
+            const userID = parseInt(document.getElementById('manualUserID').value);
+
+            if (!userID) {
+                alert('Please enter a User ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/attendance/mark`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userID })
+                });
+
+                if (response.status === 200) {
+                    const data = await response.json();
+                    updateStatus(
+                        data.status === 'marked' ? 'marked' : 'already-marked',
+                        data.status === 'marked' ? '✓ Attendance marked' : 'Already marked today'
+                    );
+                    addRecentScan({
+                        name: data.name,
+                        time: new Date().toLocaleTimeString('en-US', { hour12: false }),
+                        status: data.status
+                    });
+                    updateStats();
+                    document.getElementById('manualUserID').value = '';
+                } else {
+                    alert('User not found');
+                }
+            } catch (error) {
+                alert('Error marking attendance: ' + error.message);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // UTILITIES
+        // ──────────────────────────────────────────────────────────────────────
+
+        function playSound(type) {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            if (type === 'success') {
+                oscillator.frequency.value = 800;
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + 0.2);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // INIT
+        // ──────────────────────────────────────────────────────────────────────
+
+        window.addEventListener('load', () => {
+            updateStats();
+            setInterval(updateStats, 5000); // Refresh stats every 5 seconds
+        });
+
+        window.addEventListener('beforeunload', () => {
+            stopScanning();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Wizard — Smart Attendance</title>
+    <link rel="stylesheet" href="../css/theme.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+
+        .wizard-container {
+            width: 100%;
+            max-width: 700px;
+        }
+
+        .wizard-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .wizard-header h1 {
+            font-size: 1.75rem;
+            color: #38bdf8;
+            margin-bottom: 0.5rem;
+        }
+
+        .wizard-header p {
+            color: #94a3b8;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-bottom: 2rem;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8, #10b981);
+            width: 0%;
+            transition: width 0.4s ease;
+        }
+
+        .steps {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .step {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .step.pending {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .step.completed {
+            background: rgba(16, 185, 129, 0.05);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .step-number {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(59, 130, 246, 0.3);
+            border: 2px solid rgba(59, 130, 246, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: #60a5fa;
+            flex-shrink: 0;
+        }
+
+        .step.completed .step-number {
+            background: rgba(16, 185, 129, 0.3);
+            border-color: #10b981;
+            color: #10b981;
+        }
+
+        .step-info h3 {
+            font-size: 1.05rem;
+            color: #f1f5f9;
+            margin-bottom: 0.25rem;
+        }
+
+        .step-info p {
+            font-size: 0.85rem;
+            color: #cbd5e1;
+        }
+
+        .step-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-left: auto;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #64748b;
+        }
+
+        .status-dot.loading {
+            background: #f59e0b;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .status-dot.success {
+            background: #10b981;
+        }
+
+        .status-dot.error {
+            background: #ef4444;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
+        }
+
+        .step-content {
+            display: none;
+            margin-top: 1rem;
+        }
+
+        .step-content.active {
+            display: block;
+        }
+
+        .log-box {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            max-height: 150px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            line-height: 1.4;
+        }
+
+        .log-entry {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0;
+        }
+
+        .log-entry.success { color: #10b981; }
+        .log-entry.error { color: #ef4444; }
+        .log-entry.warn { color: #f59e0b; }
+        .log-entry.info { color: #60a5fa; }
+
+        .summary-box {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-top: 2rem;
+            text-align: center;
+            display: none;
+        }
+
+        .summary-box.visible {
+            display: block;
+            animation: slideIn 0.5s ease;
+        }
+
+        .summary-box h2 {
+            font-size: 1.3rem;
+            color: #10b981;
+            margin-bottom: 1rem;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .btn-group button {
+            flex: 1;
+        }
+
+        video {
+            width: 100%;
+            aspect-ratio: 4/3;
+            border-radius: 8px;
+            background: #000;
+            margin-bottom: 1rem;
+        }
+
+        @media (max-width: 600px) {
+            .wizard-container {
+                max-width: 100%;
+            }
+
+            .step {
+                padding: 1rem;
+            }
+
+            .step-header {
+                flex-wrap: wrap;
+            }
+
+            .step-status {
+                margin-left: 0;
+                width: 100%;
+                margin-top: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wizard-container">
+        <div class="wizard-header">
+            <h1>⚙️ Setup Wizard</h1>
+            <p>Verify your system is ready for smart attendance tracking</p>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+
+        <div class="steps" id="stepsContainer"></div>
+
+        <div class="summary-box" id="summaryBox">
+            <h2>✓ All Systems Ready!</h2>
+            <p>Your system is configured and ready to use. Proceed to register users or start scanning attendance.</p>
+            <div class="btn-group">
+                <button class="btn-primary" onclick="window.location.href='../register/register.html'">
+                    Register Users →
+                </button>
+                <button class="btn-secondary" onclick="window.location.href='../index.html'">
+                    Back to Home
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/common.js"></script>
+    <script src="wizard.js"></script>
+</body>
+</html>

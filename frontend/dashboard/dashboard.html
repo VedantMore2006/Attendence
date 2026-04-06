@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — Smart Attendance</title>
+    <link rel="stylesheet" href="../css/theme.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            color: #38bdf8;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #94a3b8;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-card h3 {
+            color: #94a3b8;
+            font-size: 0.9rem;
+            margin-bottom: 0.75rem;
+            font-weight: 500;
+        }
+
+        .stat-card .value {
+            color: #38bdf8;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card .change {
+            color: #10b981;
+            font-size: 0.85rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            padding: 0.75rem 1.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            margin-bottom: -1px;
+        }
+
+        .tab-btn:hover {
+            color: #f1f5f9;
+        }
+
+        .tab-btn.active {
+            color: #38bdf8;
+            border-bottom-color: #38bdf8;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .table-section {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .table-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .table-header h2 {
+            color: #f1f5f9;
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: #f1f5f9;
+            font-size: 0.9rem;
+        }
+
+        .search-box input::placeholder {
+            color: #64748b;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: rgba(59, 130, 246, 0.5);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .export-btn {
+            padding: 0.5rem 1rem;
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+
+        .export-btn:hover {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: rgba(16, 185, 129, 0.5);
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        th {
+            color: #cbd5e1;
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        td {
+            color: #f1f5f9;
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        tbody tr {
+            transition: background 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge.present {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+
+        .badge.absent {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .badge.late {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: #64748b;
+        }
+
+        .filters {
+            display: flex;
+            gap: 1rem;
+            padding: 1.5rem;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .filter-group label {
+            display: block;
+            color: #cbd5e1;
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .filter-group select {
+            width: 100%;
+            padding: 0.5rem;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            color: #f1f5f9;
+            font-size: 0.9rem;
+        }
+
+        .filter-group select:focus {
+            outline: none;
+            border-color: rgba(59, 130, 246, 0.5);
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn-sm {
+            padding: 0.5rem 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: #94a3b8;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-sm:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #f1f5f9;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.3rem;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .table-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .search-box {
+                min-width: 100%;
+            }
+
+            .filters {
+                flex-direction: column;
+            }
+
+            .filter-group {
+                min-width: 100%;
+            }
+
+            table {
+                font-size: 0.9rem;
+            }
+
+            th, td {
+                padding: 0.75rem 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div include-navbar></div>
+
+    <div class="container">
+        <div class="header">
+            <h1>📊 Admin Dashboard</h1>
+            <p>Attendance records and user management</p>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="dashboard-grid">
+            <div class="stat-card">
+                <h3>Users Registered</h3>
+                <div class="value" id="totalUsers">0</div>
+                <div class="change">Active</div>
+            </div>
+            <div class="stat-card">
+                <h3>Present Today</h3>
+                <div class="value" id="presentToday">0</div>
+                <div class="change">Live count</div>
+            </div>
+            <div class="stat-card">
+                <h3>Attendance Rate</h3>
+                <div class="value" id="attendanceRate">0%</div>
+                <div class="change">Today</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Scans</h3>
+                <div class="value" id="totalScans">0</div>
+                <div class="change">This month</div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="records">📋 Attendance Records</button>
+            <button class="tab-btn" data-tab="users">👥 User Management</button>
+            <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
+        </div>
+
+        <!-- Attendance Records Tab -->
+        <div class="tab-content active" id="records">
+            <div class="table-section">
+                <div class="table-header">
+                    <h2>Attendance Records</h2>
+                    <button class="export-btn" onclick="exportToCSV()">📥 Export as CSV</button>
+                </div>
+
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>Filter by Date</label>
+                        <input type="date" id="filterDate" onchange="filterRecords()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Filter by User</label>
+                        <input type="text" id="filterUser" placeholder="Enter user name" onkeyup="filterRecords()">
+                    </div>
+                    <div class="filter-group">
+                        <label>Status</label>
+                        <select id="filterStatus" onchange="filterRecords()">
+                            <option value="">All Status</option>
+                            <option value="present">Present</option>
+                            <option value="absent">Absent</option>
+                            <option value="late">Late</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-wrapper">
+                    <table id="recordsTable">
+                        <thead>
+                            <tr>
+                                <th>User Name</th>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Status</th>
+                                <th>Confidence</th>
+                                <th>Device</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recordsList">
+                            <tr><td colspan="6" class="no-data">Loading records...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Management Tab -->
+        <div class="tab-content" id="users">
+            <div class="table-section">
+                <div class="table-header">
+                    <h2>Registered Users</h2>
+                    <div class="search-box">
+                        <input type="text" id="userSearch" placeholder="Search users..." onkeyup="filterUsers()">
+                    </div>
+                </div>
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Department</th>
+                                <th>Registered Date</th>
+                                <th>Images</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersList">
+                            <tr><td colspan="6" class="no-data">Loading users...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="settings">
+            <div class="table-section">
+                <div class="table-header">
+                    <h2>System Settings</h2>
+                </div>
+
+                <div style="padding: 2rem; color: #f1f5f9;">
+                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem;">
+                        <h3 style="margin-top: 0; color: #38bdf8;">API Configuration</h3>
+                        <p id="apiEndpoint" style="color: #94a3b8; margin: 0.5rem 0;">API Base: --</p>
+                        <p id="apiStatus" style="color: #10b981; margin: 0.5rem 0;">Status: ✓ Connected</p>
+                    </div>
+
+                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem;">
+                        <h3 style="margin-top: 0; color: #38bdf8;">Advanced Actions</h3>
+                        <div class="action-buttons">
+                            <button class="btn-sm" onclick="refreshAllStats()">🔄 Refresh All Stats</button>
+                            <button class="btn-sm" onclick="clearAllCache()">🗑️ Clear Cache</button>
+                            <button class="btn-sm" onclick="downloadReport()">📄 Download Report</button>
+                        </div>
+                    </div>
+
+                    <div style="background: rgba(0, 0, 0, 0.2); border-radius: 8px; padding: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #38bdf8;">System Info</h3>
+                        <p style="color: #94a3b8; margin: 0.5rem 0;">App Version: v1.0.0</p>
+                        <p style="color: #94a3b8; margin: 0.5rem 0;">Last Updated: <span id="lastUpdate">--</span></p>
+                        <p style="color: #94a3b8; margin: 0.5rem 0;">Browser: <span id="browserInfo">--</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <a href="../index.html" style="display: block; text-align: center; margin-top: 2rem; color: #60a5fa; text-decoration: none; font-size: 0.9rem;">
+            ← Back to Home
+        </a>
+    </div>
+
+    <script src="../js/common.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+</html>
