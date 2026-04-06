@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html" class="active">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <h2>Daily Statistics</h2>
+        <div class="stats-grid">
+            <div class="card stat-card">
+                <h3>Total Users</h3>
+                <p id="stat-total">-</p>
+            </div>
+            <div class="card stat-card">
+                <h3>Present Today</h3>
+                <p id="stat-present">-</p>
+            </div>
+            <div class="card stat-card">
+                <h3>Attendance %</h3>
+                <p id="stat-percent">-</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadStats();
+        });
+    </script>
+</body>
+</html>

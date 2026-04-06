@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Face | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html" class="active">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card scan-container">
+            <h2>Live Attendance Scan</h2>
+            <div class="video-wrapper">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="capture-canvas" style="display:none;"></canvas>
+                <div id="scan-overlay" class="overlay">Initializing...</div>
+            </div>
+            
+            <div id="status-box" class="status-box">
+                <p id="status-message">Waiting for camera...</p>
+                <small id="status-detail">Align your face in the center of the frame.</small>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        // Specific logic for Scan page
+        window.addEventListener('load', () => {
+            App.initScanPage();
+        });
+    </script>
+</body>
+</html>
