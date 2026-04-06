@@ -57,20 +57,20 @@ const App = {
 
     // --- Page: Scan ---
     async initScanPage() {
-        const statusCard   = document.getElementById('scan-result-card');
-        const statusMsg    = document.getElementById('status-message');
-        const statusDetail = document.getElementById('status-detail');
-        const resultIcon   = document.getElementById('result-icon');
-        const cameraFrame  = document.getElementById('camera-frame');
+        const statusCard    = document.getElementById('scan-result-card');
+        const statusMsg     = document.getElementById('status-message');
+        const statusDetail  = document.getElementById('status-detail');
+        const resultIcon    = document.getElementById('result-icon');
+        const cameraFrame   = document.getElementById('camera-frame');
         const recognizedDiv = document.getElementById('recognized-user');
+        const scanBtn       = document.getElementById('scan-btn');
+        const logEntries    = document.getElementById('log-entries');
+        const logRefreshBtn = document.getElementById('log-refresh-btn');
 
-        // Helper: safe DOM update (avoids silent crash if element is missing)
         const set = (el, prop, val) => { if (el) el[prop] = val; };
-        const cls = (el, c) => { if (el) el.className = c; };
+        const cls = (el, c)         => { if (el) el.className = c; };
 
-        set(statusMsg,    'innerText', 'Starting Camera…');
-        set(statusDetail, 'innerText', 'Requesting camera access');
-
+        // Start camera
         const webcamStarted = await this.startWebcam('webcam', true);
         if (!webcamStarted) {
             cls(statusCard, 'scan-result-card state-error');
@@ -80,108 +80,183 @@ const App = {
             return;
         }
 
-        // Wait for video to actually start streaming before scanning
+        // Wait for video stream to have actual pixel data
         const video = document.getElementById('webcam');
         if (video && video.readyState < 2) {
             await new Promise(resolve => {
                 video.addEventListener('loadeddata', resolve, { once: true });
-                setTimeout(resolve, 4000); // fallback
+                setTimeout(resolve, 4000);
             });
         }
 
-        // Camera is live — update UI
+        // Camera ready
         if (cameraFrame) cameraFrame.classList.add('scanning');
-        cls(statusCard, 'scan-result-card state-scanning');
-        set(resultIcon,   'innerText', '⟳');
-        set(statusMsg,    'innerText', 'Scanning…');
-        set(statusDetail, 'innerText', 'Looking for faces');
+        cls(statusCard, 'scan-result-card state-ready');
+        set(resultIcon,   'innerText', '◎');
+        set(statusMsg,    'innerText', 'Ready to Scan');
+        set(statusDetail, 'innerText', 'Press the button to check attendance');
 
-        if (this.scanInterval) clearInterval(this.scanInterval);
-        this.lastScanStatus = null;
+        if (scanBtn) {
+            scanBtn.disabled   = false;
+            scanBtn.textContent = 'Scan Face';
+            scanBtn.addEventListener('click', () => {
+                this.performScan(scanBtn, statusCard, statusMsg, statusDetail, resultIcon, cameraFrame, recognizedDiv, logEntries);
+            });
+        }
 
-        this.scanInterval = setInterval(async () => {
-            const b64 = this.captureFrame('webcam', true);
-            if (!b64) return; // video not ready yet — skip tick silently
+        if (logRefreshBtn) {
+            logRefreshBtn.addEventListener('click', () => this.loadLogPanel(logEntries));
+        }
 
-            try {
-                const result = await API.scanAttendance(b64);
-                this.updateScanUI(result, statusCard, statusMsg, statusDetail, resultIcon, cameraFrame, recognizedDiv);
-            } catch (err) {
-                cls(statusCard, 'scan-result-card state-error');
-                set(resultIcon,   'innerText', '⚠');
-                set(statusMsg,    'innerText', 'Connection Error');
-                set(statusDetail, 'innerText', err.message || 'Server unreachable');
-            }
-        }, 1500);
+        // Load initial recent activity
+        this.loadLogPanel(logEntries);
     },
 
-    updateScanUI(res, card, msg, detail, icon, cameraFrame, recognizedDiv) {
+    async performScan(btn, card, msg, detail, icon, cameraFrame, recognizedDiv, logEntries) {
         const set = (el, prop, val) => { if (el) el[prop] = val; };
-        const cls = (el, c) => { if (el) el.className = c; };
+        const cls = (el, c)         => { if (el) el.className = c; };
 
-        // Check if we already have a successful result displayed
-        const hasSuccess = this.lastScanStatus &&
-            (this.lastScanStatus.endsWith('_marked') || this.lastScanStatus.endsWith('_already'));
+        const b64 = this.captureFrame('webcam', true);
+        if (!b64) {
+            cls(card, 'scan-result-card state-error');
+            set(icon,   'innerText', '⚠');
+            set(msg,    'innerText', 'Capture Failed');
+            set(detail, 'innerText', 'Camera not ready — try again');
+            return;
+        }
 
-        switch (res.status) {
+        // Scanning state
+        if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+        cls(card, 'scan-result-card state-scanning');
+        set(icon,   'innerText', '⟳');
+        set(msg,    'innerText', 'Processing…');
+        set(detail, 'innerText', 'Analyzing your face');
+        if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+
+        try {
+            // Send image to backend
+            await API.scanAttendance(b64);
+
+            // Give the server a moment to flush the log, then fetch it
+            await new Promise(r => setTimeout(r, 400));
+            const events = await API.getRecentScanEvents();
+
+            // Use the latest log event as the source of truth for the UI
+            if (events && events.length > 0) {
+                const latest = events[0];
+                this.updateScanUIFromLog(latest, card, msg, detail, icon, cameraFrame, recognizedDiv);
+            } else {
+                cls(card, 'scan-result-card state-error');
+                set(icon,   'innerText', '?');
+                set(msg,    'innerText', 'No Result');
+                set(detail, 'innerText', 'Backend returned no log entry');
+            }
+
+            // Refresh log panel
+            this.renderLogPanel(logEntries, events);
+
+        } catch (err) {
+            cls(card, 'scan-result-card state-error');
+            set(icon,   'innerText', '⚠');
+            set(msg,    'innerText', 'Connection Error');
+            set(detail, 'innerText', err.message || 'Server unreachable');
+        } finally {
+            // Re-enable scan button after short delay
+            setTimeout(() => {
+                if (btn) { btn.disabled = false; btn.textContent = 'Scan Again'; }
+            }, 1800);
+        }
+    },
+
+    updateScanUIFromLog(event, card, msg, detail, icon, cameraFrame, recognizedDiv) {
+        const set = (el, prop, val) => { if (el) el[prop] = val; };
+        const cls = (el, c)         => { if (el) el.className = c; };
+
+        switch (event.result) {
             case 'marked':
                 cls(card, 'scan-result-card state-success');
                 set(icon,   'innerText', '✓');
                 set(msg,    'innerText', 'Attendance Marked!');
-                set(detail, 'innerText', `Checked in at ${res.time}`);
+                set(detail, 'innerText', `Checked in at ${event.time}`);
                 if (cameraFrame) cameraFrame.className = 'camera-frame success';
-                this.showRecognizedUser(res.name, res.confidence, res.time, recognizedDiv, 'marked');
-                if (this.lastScanStatus !== res.name + '_marked') {
-                    this.showToast(`Welcome, ${res.name}! Marked at ${res.time}`, 'success');
-                    this.lastScanStatus = res.name + '_marked';
-                }
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'marked');
+                this.showToast(`Welcome, ${event.user}! Marked at ${event.time}`, 'success');
                 break;
 
             case 'already_marked':
                 cls(card, 'scan-result-card state-warning');
                 set(icon,   'innerText', '✓');
                 set(msg,    'innerText', 'Already Checked In');
-                set(detail, 'innerText', `First checked in at ${res.time}`);
-                if (cameraFrame) cameraFrame.className = 'camera-frame warning scanning';
-                this.showRecognizedUser(res.name, res.confidence, res.time, recognizedDiv, 'already_marked');
-                if (this.lastScanStatus !== res.name + '_already') {
-                    this.showToast(`${res.name} — already marked at ${res.time}`, 'warning');
-                    this.lastScanStatus = res.name + '_already';
-                }
+                set(detail, 'innerText', `First checked in at ${event.time}`);
+                if (cameraFrame) cameraFrame.className = 'camera-frame warning';
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'already_marked');
+                this.showToast(`${event.user} — already marked at ${event.time}`, 'warning');
                 break;
 
             case 'no_match':
-                // Only show "not recognized" if we don't already have a success result up
-                if (!hasSuccess) {
-                    cls(card, 'scan-result-card state-error');
-                    set(icon,   'innerText', '?');
-                    set(msg,    'innerText', 'Face Not Recognized');
-                    set(detail, 'innerText', 'Not registered — please register first');
-                    if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
-                    if (recognizedDiv) recognizedDiv.innerHTML = '';
-                    this.lastScanStatus = 'no_match';
-                }
+                cls(card, 'scan-result-card state-error');
+                set(icon,   'innerText', '?');
+                set(msg,    'innerText', 'Face Not Recognized');
+                set(detail, 'innerText', 'Not registered — please register first');
+                if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+                if (recognizedDiv) recognizedDiv.innerHTML = '';
                 break;
 
             case 'no_face':
             default:
-                // If we already showed a recognized user, keep that result — don't reset
-                if (hasSuccess) return;
                 cls(card, 'scan-result-card state-scanning');
-                set(icon,   'innerText', '⟳');
-                set(msg,    'innerText', 'Scanning…');
-                set(detail, 'innerText', 'Position your face in the oval');
+                set(icon,   'innerText', '◎');
+                set(msg,    'innerText', 'No Face Detected');
+                set(detail, 'innerText', 'Make sure your face is in the oval and try again');
                 if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
                 if (recognizedDiv) recognizedDiv.innerHTML = '';
-                this.lastScanStatus = 'no_face';
                 break;
         }
     },
 
+    async loadLogPanel(container) {
+        if (!container) return;
+        try {
+            const events = await API.getRecentScanEvents();
+            this.renderLogPanel(container, events);
+        } catch (_) {
+            if (container) container.innerHTML = '<p class="log-empty">Could not load activity</p>';
+        }
+    },
+
+    renderLogPanel(container, events) {
+        if (!container) return;
+        if (!events || events.length === 0) {
+            container.innerHTML = '<p class="log-empty">No recent activity</p>';
+            return;
+        }
+        container.innerHTML = events.map(e => {
+            const iconMap  = { marked: '✓', already_marked: '✓', no_match: '?', no_face: '○' };
+            const clsMap   = { marked: 'log-success', already_marked: 'log-warning', no_match: 'log-error', no_face: 'log-muted' };
+            const labelMap = {
+                marked:         e.user ? `${e.user} — checked in at ${e.time}` : 'Marked',
+                already_marked: e.user ? `${e.user} — already in at ${e.time}` : 'Already marked',
+                no_match:       'Unknown face scanned',
+                no_face:        'No face detected',
+            };
+            const ic  = iconMap[e.result]  || '○';
+            const cl  = clsMap[e.result]   || 'log-muted';
+            const lbl = labelMap[e.result] || e.result;
+            const ts  = e.timestamp ? e.timestamp.split(' ')[1] : '';
+            return `<div class="log-entry ${cl}">
+                <span class="log-icon">${ic}</span>
+                <div class="log-body">
+                    <span class="log-label">${lbl}</span>
+                    <span class="log-ts">${ts}</span>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
     showRecognizedUser(name, confidence, time, container, status) {
         if (!container || !name) return;
-        const initial  = name.charAt(0).toUpperCase();
-        const confPct  = confidence != null ? (confidence * 100).toFixed(1) : null;
+        const initial   = name.charAt(0).toUpperCase();
+        const confPct   = confidence != null ? (confidence * 100).toFixed(1) : null;
         const timeLabel = status === 'marked' ? `Just checked in at ${time}` : `Checked in at ${time}`;
         container.innerHTML = `
             <div class="user-recognized">

@@ -56,6 +56,11 @@ const API = {
             throw new Error('Failed to delete user');
         }
         return true;
+    },
+
+    async getRecentScanEvents() {
+        const response = await fetch(`${API_BASE}/logs/recent`);
+        return response.json();
     }
 };
 

@@ -27,59 +27,46 @@
             <div class="camera-col">
                 <div class="camera-frame" id="camera-frame">
                     <video id="webcam" autoplay playsinline></video>
-
-                    <!-- Animated corner brackets -->
                     <div class="scan-corners">
                         <span class="sc tl"></span>
                         <span class="sc tr"></span>
                         <span class="sc bl"></span>
                         <span class="sc br"></span>
                     </div>
-
-                    <!-- Face target oval -->
                     <div class="face-target-ring"></div>
-
-                    <!-- Horizontal scan line -->
-                    <div class="scan-sweep"></div>
-
-                    <!-- Live badge -->
+                    <div class="scan-sweep" id="scan-sweep"></div>
                     <div class="live-badge">
                         <span class="live-pulse"></span>
                         LIVE
                     </div>
                 </div>
-                <p class="camera-caption">Keep your face inside the oval</p>
+                <div class="scan-btn-row">
+                    <button id="scan-btn" class="btn btn-primary btn-scan-face" disabled>
+                        Starting camera…
+                    </button>
+                </div>
+                <p class="camera-caption">Keep your face inside the oval, then press Scan</p>
             </div>
 
-            <!-- ── Right: Status ── -->
+            <!-- ── Right: Status + Log ── -->
             <div class="info-col">
 
-                <!-- Status result card -->
                 <div class="scan-result-card state-init" id="scan-result-card">
-                    <div class="result-icon" id="result-icon">⟳</div>
-                    <h2 id="status-message">Initializing Camera</h2>
-                    <p id="status-detail">Please wait while we access your camera</p>
+                    <div class="result-icon" id="result-icon">◎</div>
+                    <h2 id="status-message">Ready</h2>
+                    <p id="status-detail">Camera initializing — please wait</p>
                 </div>
 
-                <!-- Recognized user (populated by JS) -->
                 <div id="recognized-user"></div>
 
-                <!-- Static info -->
-                <div class="scan-info-card">
-                    <h4>How it works</h4>
-                    <div class="info-steps">
-                        <div class="info-step">
-                            <span class="step-num">1</span>
-                            <span>Face the camera and stay still</span>
-                        </div>
-                        <div class="info-step">
-                            <span class="step-num">2</span>
-                            <span>Face is detected and matched automatically</span>
-                        </div>
-                        <div class="info-step">
-                            <span class="step-num">3</span>
-                            <span>Attendance is recorded instantly</span>
-                        </div>
+                <!-- Recent activity from log -->
+                <div class="log-panel">
+                    <div class="log-panel-header">
+                        <h4>Recent Activity</h4>
+                        <button id="log-refresh-btn" class="btn-icon" title="Refresh">↻</button>
+                    </div>
+                    <div id="log-entries">
+                        <p class="log-empty">No recent activity</p>
                     </div>
                 </div>
 
@@ -91,10 +78,7 @@
     <script src="app.js"></script>
     <script>
         window.addEventListener('load', () => App.initScanPage());
-        window.addEventListener('beforeunload', () => {
-            if (App.scanInterval) clearInterval(App.scanInterval);
-            App.stopWebcam();
-        });
+        window.addEventListener('beforeunload', () => App.stopWebcam());
     </script>
 </body>
 </html>

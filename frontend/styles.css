@@ -878,3 +878,114 @@ tr:hover {
         flex-direction: column;
     }
 }
+
+/* Scan button row */
+.scan-btn-row {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: center;
+}
+
+.btn-scan-face {
+    width: 100%;
+    max-width: 320px;
+    padding: 0.9rem 2rem;
+    font-size: 1rem;
+    justify-content: center;
+    border-radius: 0.75rem;
+}
+
+/* Ready state */
+.scan-result-card.state-ready {
+    border-color: var(--primary);
+    background: rgba(249, 115, 22, 0.05);
+}
+
+/* Log panel */
+.log-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 1.25rem;
+    padding: 1.25rem 1.5rem;
+}
+
+.log-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.log-panel-header h4 {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 0;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.4rem;
+    transition: color 0.2s, background 0.2s;
+}
+
+.btn-icon:hover {
+    color: var(--primary);
+    background: rgba(249, 115, 22, 0.1);
+}
+
+.log-empty {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+    text-align: center;
+    padding: 0.75rem 0;
+    margin: 0;
+}
+
+.log-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+}
+
+.log-entry:last-child { border-bottom: none; }
+
+.log-icon {
+    font-size: 0.9rem;
+    min-width: 18px;
+    text-align: center;
+}
+
+.log-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.log-label {
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.log-ts {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+
+.log-success .log-icon { color: var(--success); }
+.log-warning .log-icon { color: var(--warning); }
+.log-error   .log-icon { color: var(--error); }
+.log-muted   .log-icon { color: var(--text-secondary); }

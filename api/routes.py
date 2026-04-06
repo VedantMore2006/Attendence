@@ -1,5 +1,7 @@
 import base64
 import logging
+import os
+import re
 import sqlite3
 from datetime import datetime
 from typing import Optional
@@ -636,3 +638,55 @@ def get_today_stats(conn=Depends(get_connection)):
         present_users=present_users,
         attendance_percent=attendance_percent,
     )
+
+
+@router.get("/logs/recent")
+def get_recent_scan_events():
+    """Return up to 10 recent SCAN result events parsed from the log file."""
+    log_path = "logs/attendance.log"
+    events: list[dict] = []
+
+    if not os.path.exists(log_path):
+        return events
+
+    line_pattern = re.compile(
+        r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| \w+\s+\| api\.routes \| SCAN result=(\w+)(?:\s{2,}(.*))?$"
+    )
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return events
+
+    for line in reversed(lines):
+        m = line_pattern.match(line.strip())
+        if not m:
+            continue
+
+        timestamp = m.group(1)
+        result = m.group(2)
+        rest = m.group(3) or ""
+
+        # Parse double-space-separated key=value pairs (handles names with spaces)
+        kv: dict[str, str] = {}
+        for part in re.split(r"\s{2,}", rest.strip()):
+            if "=" in part:
+                key, _, val = part.partition("=")
+                kv[key.strip()] = val.strip()
+
+        events.append(
+            {
+                "timestamp": timestamp,
+                "result": result,
+                "user": kv.get("user"),
+                "time": kv.get("checked_in_at") or kv.get("time"),
+                "confidence": float(kv["confidence"]) if "confidence" in kv else None,
+                "user_id": int(kv["id"]) if kv.get("id", "").isdigit() else None,
+            }
+        )
+
+        if len(events) >= 10:
+            break
+
+    return events
