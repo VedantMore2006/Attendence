@@ -6,33 +6,34 @@ PROJECT STRUCTURE:
 --------------------------------------------------------------------------------
 
 Attendence/
+├── IMPLEMENTATION_SUMMARY.md
 ├── README.md
 ├── attendance.db
 ├── database_cheatsheet.md
-├── main.py
-├── preview.html
+├── implementation.txt
 ├── project_extract.py
 ├── project_extraction.txt
 ├── requirements.txt
 ├── todo.txt
 ├── api/
+│   ├── errors.py
 │   ├── routes.py
 │   └── server.py
 ├── attendance/
-│   ├── attendance_service.py
-│   └── register_user.py
-├── camera/
-│   └── camera_stream.py
-├── dashboard/
-│   ├── app.py
-│   └── attendance.db
+│   └── attendance_service.py
 ├── database/
-│   ├── db.py
 │   └── models.py
-├── recognition/
-│   └── matcher.py
-├── utils/
-│   └── config.py
+├── frontend/
+│   ├── api.js
+│   ├── app.js
+│   ├── attendance.html
+│   ├── index.html
+│   ├── register.html
+│   ├── scan.html
+│   ├── stats.html
+│   └── styles.css
+├── logs/
+│   └── attendance.log
 └── vision/
     ├── aligner.py
     ├── detector.py
@@ -45,233 +46,863 @@ FILE CONTENTS
 
 
 ================================================================================
+FILE: api/errors.py
+================================================================================
+
+import logging
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
+
+
+# ── Base ─────────────────────────────────────────────────────────────────────
+
+
+class AppError(Exception):
+    """Base class for all application-level errors."""
+
+    status_code: int = 500
+    default_message: str = "An unexpected error occurred"
+
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or self.default_message
+        super().__init__(self.message)
+
+
+# ── Image / vision errors ─────────────────────────────────────────────────────
+
+
+class ImageDecodeError(AppError):
+    status_code = 400
+    default_message = "Could not decode the provided image"
+
+
+class ModelNotReadyError(AppError):
+    status_code = 503
+    default_message = (
+        "Face recognition model is not available. "
+        "The server may still be loading or the model failed to initialise."
+    )
+
+
+class EmbeddingError(AppError):
+    status_code = 422
+    default_message = "Could not extract face embedding from the image"
+
+
+# ── Database errors ───────────────────────────────────────────────────────────
+
+
+class DatabaseError(AppError):
+    status_code = 500
+    default_message = "A database error occurred"
+
+
+# ── FastAPI exception handlers ────────────────────────────────────────────────
+
+
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    """Handler for all known AppError subclasses."""
+    logger.warning(
+        "AppError [%s] on %s: %s",
+        type(exc).__name__,
+        request.url.path,
+        exc.message,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.message,
+            "type": type(exc).__name__,
+        },
+    )
+
+
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all handler so unhandled exceptions never expose stack traces."""
+    logger.exception(
+        "Unhandled exception on %s: %s",
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "type": "InternalError",
+        },
+    )
+
+
+================================================================================
 FILE: api/routes.py
 ================================================================================
 
+import base64
+import logging
 import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import cv2
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from api.errors import (
+    DatabaseError,
+    EmbeddingError,
+    ImageDecodeError,
+    ModelNotReadyError,
+)
 from attendance.attendance_service import AttendanceService
 from database.models import FaceDatabase
 
+logger = logging.getLogger(__name__)
 
 DB_PATH = "attendance.db"
+MATCH_THRESHOLD = 0.55
 
 router = APIRouter(tags=["attendance"])
 
 
+# ── Pydantic models ───────────────────────────────────────────────────────────
+
+
 class CreateUserRequest(BaseModel):
-	name: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=120)
+    images: list[str] = Field(
+        default_factory=list,
+        description="Base64-encoded JPEG face images captured during registration",
+    )
 
 
 class UserResponse(BaseModel):
-	id: int
-	name: str
-	created_at: str
+    id: int
+    name: str
+    created_at: str
+
+
+class CreateUserResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    embeddings_stored: int
+    embeddings_failed: int
 
 
 class MarkAttendanceRequest(BaseModel):
-	user_id: int
+    user_id: int
 
 
 class AttendanceRecordResponse(BaseModel):
-	id: int
-	user_id: int
-	name: str
-	date: str
-	time: str
+    id: int
+    user_id: int
+    name: str
+    date: str
+    time: str
 
 
 class StatsTodayResponse(BaseModel):
-	date: str
-	total_users: int
-	present_users: int
-	attendance_percent: float
+    date: str
+    total_users: int
+    present_users: int
+    attendance_percent: float
+
+
+class ScanAttendanceRequest(BaseModel):
+    image: str = Field(
+        ...,
+        description="Base64-encoded JPEG frame (data-URI prefix is stripped automatically)",
+    )
+
+
+class ScanAttendanceResponse(BaseModel):
+    status: str  # marked | already_marked | no_face | no_match
+    message: str = ""
+    name: Optional[str] = None
+    time: Optional[str] = None
+    user_id: Optional[int] = None
+    confidence: Optional[float] = None
+
+
+# ── DB dependency ─────────────────────────────────────────────────────────────
 
 
 def get_connection():
-	conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-	conn.row_factory = sqlite3.Row
-	try:
-		yield conn
-	finally:
-		conn.close()
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_database() -> None:
-	conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-	try:
-		FaceDatabase(conn)
-	finally:
-		conn.close()
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    try:
+        FaceDatabase(conn)
+    finally:
+        conn.close()
+
+
+# ── Image / vision helpers ────────────────────────────────────────────────────
+
+
+def decode_base64_image(b64_str: str) -> np.ndarray:
+    """
+    Decode a base64 string (with or without a data-URI prefix) into an
+    OpenCV BGR ndarray.
+
+    Raises ImageDecodeError on any failure so callers never see raw exceptions.
+    """
+    if not b64_str or not b64_str.strip():
+        raise ImageDecodeError("Image data is empty")
+
+    # Strip "data:image/...;base64," prefix if present
+    if "," in b64_str:
+        b64_str = b64_str.split(",", 1)[1]
+
+    b64_str = b64_str.strip()
+
+    try:
+        raw_bytes = base64.b64decode(b64_str, validate=True)
+    except Exception as exc:
+        raise ImageDecodeError(f"Base64 decoding failed: {exc}") from exc
+
+    if len(raw_bytes) == 0:
+        raise ImageDecodeError("Decoded image data is empty")
+
+    np_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        raise ImageDecodeError(
+            "Could not decode image — unsupported format or corrupt data"
+        )
+
+    h, w = frame.shape[:2]
+    if h < 10 or w < 10:
+        raise ImageDecodeError(
+            f"Image is too small to process ({w}x{h} px)"
+        )
+
+    return frame
+
+
+def _pick_largest_box(boxes: list[list[int]]) -> list[int]:
+    """Return the bounding box with the largest area."""
+    return max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+
+
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+def _match_embedding(
+    query: np.ndarray,
+    face_data: dict,
+) -> tuple[Optional[int], Optional[str], float]:
+    """
+    Compare query embedding against all stored embeddings.
+
+    Returns (best_user_id, best_name, best_score).
+    Returns (None, None, best_score) when no user clears MATCH_THRESHOLD.
+    """
+    best_id: Optional[int] = None
+    best_name: Optional[str] = None
+    best_score: float = -1.0
+
+    for user_id, data in face_data.items():
+        for stored_emb in data["embeddings"]:
+            score = _cosine_similarity(query, stored_emb)
+            if score > best_score:
+                best_score = score
+                best_id = user_id
+                best_name = data["name"]
+
+    if best_score >= MATCH_THRESHOLD:
+        return best_id, best_name, best_score
+
+    return None, None, best_score
+
+
+def _extract_embedding_from_frame(
+    frame: np.ndarray,
+    request: Request,
+) -> Optional[np.ndarray]:
+    """
+    Run the full detect → align → embed pipeline on a single frame.
+
+    Returns the embedding ndarray, or None if no usable face was found.
+    Raises EmbeddingError on pipeline failures (not "no face" cases).
+    """
+    detector = request.app.state.detector
+    aligner = request.app.state.aligner
+    embedder = request.app.state.embedder
+
+    try:
+        boxes = detector.detect_faces(frame)
+    except Exception as exc:
+        logger.error("Face detection error: %s", exc)
+        raise EmbeddingError("Face detection failed internally") from exc
+
+    if not boxes:
+        return None
+
+    box = _pick_largest_box(boxes)
+
+    try:
+        face = aligner.align_face(frame, box)
+    except Exception as exc:
+        logger.error("Face alignment error: %s", exc)
+        return None  # non-fatal — alignment is best-effort
+
+    if face is None:
+        return None
+
+    try:
+        embedding = embedder.get_embedding(face)
+    except Exception as exc:
+        logger.error("Embedding extraction error: %s", exc)
+        raise EmbeddingError(f"Embedding extraction failed: {exc}") from exc
+
+    return embedding  # may still be None if embedder returns None
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/health")
-def health() -> dict:
-	return {"status": "ok", "service": "smart-attendance-api"}
+def health(request: Request) -> dict:
+    model_ready: bool = getattr(request.app.state, "model_ready", False)
+    return {
+        "status": "ok",
+        "service": "smart-attendance-api",
+        "model_ready": model_ready,
+    }
 
 
-@router.post("/users", response_model=UserResponse)
-def create_user(payload: CreateUserRequest, conn=Depends(get_connection)):
-	face_db = FaceDatabase(conn)
-	cleaned_name = payload.name.strip()
+# ── Users ─────────────────────────────────────────────────────────────────────
 
-	if not cleaned_name:
-		raise HTTPException(status_code=400, detail="Name cannot be empty")
 
-	user_id = face_db.add_user(cleaned_name)
+@router.post("/users", response_model=CreateUserResponse, status_code=201)
+def create_user(
+    payload: CreateUserRequest,
+    request: Request,
+    conn=Depends(get_connection),
+):
+    """
+    Create a new user and optionally store face embeddings from the provided
+    base64 images.  The user record is always created; embedding failures are
+    reported in the response rather than rolling back the user.
+    """
+    cleaned_name = payload.name.strip()
+    if not cleaned_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
 
-	cursor = conn.cursor()
-	cursor.execute(
-		"SELECT id, name, created_at FROM users WHERE id = ?",
-		(user_id,),
-	)
-	row = cursor.fetchone()
+    face_db = FaceDatabase(conn)
 
-	return UserResponse(
-		id=row["id"],
-		name=row["name"],
-		created_at=row["created_at"],
-	)
+    try:
+        user_id = face_db.add_user(cleaned_name)
+    except sqlite3.Error as exc:
+        logger.error("DB error creating user: %s", exc)
+        raise DatabaseError(f"Failed to create user: {exc}") from exc
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name, created_at FROM users WHERE id = ?", (user_id,)
+        )
+        row = cursor.fetchone()
+    except sqlite3.Error as exc:
+        logger.error("DB error reading new user row: %s", exc)
+        raise DatabaseError() from exc
+
+    embeddings_stored = 0
+    embeddings_failed = 0
+
+    if payload.images:
+        model_ready: bool = getattr(request.app.state, "model_ready", False)
+        if not model_ready:
+            logger.warning(
+                "Images provided for user %d but model is not ready — skipping", user_id
+            )
+            embeddings_failed = len(payload.images)
+        else:
+            for idx, img_b64 in enumerate(payload.images):
+                try:
+                    frame = decode_base64_image(img_b64)
+                    embedding = _extract_embedding_from_frame(frame, request)
+                    if embedding is None:
+                        logger.debug("Image %d: no face detected, skipping", idx)
+                        embeddings_failed += 1
+                        continue
+                    face_db.add_embedding(user_id, embedding)
+                    embeddings_stored += 1
+                except (ImageDecodeError, EmbeddingError) as exc:
+                    logger.warning("Image %d: %s", idx, exc.message)
+                    embeddings_failed += 1
+                except sqlite3.Error as exc:
+                    logger.error("DB error storing embedding %d: %s", idx, exc)
+                    embeddings_failed += 1
+                except Exception as exc:
+                    logger.error("Unexpected error on image %d: %s", idx, exc)
+                    embeddings_failed += 1
+
+    return CreateUserResponse(
+        id=row["id"],
+        name=row["name"],
+        created_at=row["created_at"],
+        embeddings_stored=embeddings_stored,
+        embeddings_failed=embeddings_failed,
+    )
 
 
 @router.get("/users", response_model=list[UserResponse])
 def list_users(conn=Depends(get_connection)):
-	cursor = conn.cursor()
-	cursor.execute(
-		"""
-		SELECT id, name, created_at
-		FROM users
-		ORDER BY id DESC
-		"""
-	)
-	rows = cursor.fetchall()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name, created_at FROM users ORDER BY id DESC"
+        )
+        rows = cursor.fetchall()
+    except sqlite3.Error as exc:
+        logger.error("DB error listing users: %s", exc)
+        raise DatabaseError() from exc
 
-	return [
-		UserResponse(id=row["id"], name=row["name"], created_at=row["created_at"])
-		for row in rows
-	]
+    return [
+        UserResponse(id=r["id"], name=r["name"], created_at=r["created_at"])
+        for r in rows
+    ]
+
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user(user_id: int, conn=Depends(get_connection)):
+    """
+    Delete a user and cascade-delete associated embeddings and attendance records.
+    Returns 204 No Content on success.
+    """
+    try:
+        cursor = conn.cursor()
+
+        # Check user exists
+        cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Cascade delete: embeddings → attendance → user
+        cursor.execute("DELETE FROM face_embeddings WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM attendance WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+        conn.commit()
+        logger.info("DELETE user: id=%d", user_id)
+
+    except HTTPException:
+        raise
+    except sqlite3.Error as exc:
+        logger.error("DB error deleting user %d: %s", user_id, exc)
+        raise DatabaseError("Failed to delete user") from exc
+
+
+# ── Attendance ────────────────────────────────────────────────────────────────
 
 
 @router.post("/attendance/mark")
-def mark_attendance(payload: MarkAttendanceRequest, conn=Depends(get_connection)):
-	cursor = conn.cursor()
-	cursor.execute("SELECT id, name FROM users WHERE id = ?", (payload.user_id,))
-	user_row = cursor.fetchone()
+def mark_attendance(
+    payload: MarkAttendanceRequest, conn=Depends(get_connection)
+):
+    """Manual attendance mark by user_id (used internally / testing)."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name FROM users WHERE id = ?", (payload.user_id,))
+        user_row = cursor.fetchone()
+    except sqlite3.Error as exc:
+        logger.error("DB error looking up user %d: %s", payload.user_id, exc)
+        raise DatabaseError() from exc
 
-	if user_row is None:
-		raise HTTPException(status_code=404, detail="User not found")
+    if user_row is None:
+        raise HTTPException(status_code=404, detail="User not found")
 
-	attendance_service = AttendanceService(conn)
-	marked = attendance_service.mark_attendance(payload.user_id)
+    try:
+        attendance_service = AttendanceService(conn)
+        marked = attendance_service.mark_attendance(payload.user_id)
+    except sqlite3.Error as exc:
+        logger.error("DB error marking attendance: %s", exc)
+        raise DatabaseError() from exc
 
-	if not marked:
-		return {
-			"status": "already_marked",
-			"user_id": payload.user_id,
-			"name": user_row["name"],
-			"date": datetime.now().date().isoformat(),
-		}
+    today = datetime.now().date().isoformat()
+    base = {"user_id": payload.user_id, "name": user_row["name"], "date": today}
 
-	return {
-		"status": "marked",
-		"user_id": payload.user_id,
-		"name": user_row["name"],
-		"date": datetime.now().date().isoformat(),
-	}
+    if not marked:
+        return {"status": "already_marked", **base}
+
+    return {"status": "marked", **base}
+
+
+@router.post("/attendance/scan", response_model=ScanAttendanceResponse)
+def scan_attendance(
+    payload: ScanAttendanceRequest,
+    request: Request,
+    conn=Depends(get_connection),
+):
+    """
+    Face-scan endpoint.  Accepts a base64 webcam frame, runs the full
+    detect → align → embed → match pipeline, then records attendance.
+
+    Status values returned to the client:
+      marked          — attendance successfully recorded
+      already_marked  — user already checked in today
+      no_face         — no face detected (or embedding failed)
+      no_match        — face detected but no registered user matched
+    """
+
+    # ── 1. Model availability ─────────────────────────────────────────────────
+    if not getattr(request.app.state, "model_ready", False):
+        raise ModelNotReadyError()
+
+    # ── 2. Decode image ───────────────────────────────────────────────────────
+    frame = decode_base64_image(payload.image)
+
+    # ── 3. Detect faces ───────────────────────────────────────────────────────
+    detector = request.app.state.detector
+    logger.debug("SCAN step 3: running face detection on frame %dx%d", frame.shape[1], frame.shape[0])
+    try:
+        boxes = detector.detect_faces(frame)
+    except Exception as exc:
+        logger.error("Face detection failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Face detection failed internally")
+
+    logger.debug("SCAN step 3: detected %d face(s)", len(boxes))
+    if not boxes:
+        logger.info("SCAN result=no_face  reason=no_boxes")
+        return ScanAttendanceResponse(
+            status="no_face",
+            message="No face detected. Please look directly at the camera.",
+        )
+
+    # ── 4. Align face ─────────────────────────────────────────────────────────
+    aligner = request.app.state.aligner
+    box = _pick_largest_box(boxes)
+    logger.debug("SCAN step 4: aligning face box=%s", box)
+    try:
+        face = aligner.align_face(frame, box)
+    except Exception as exc:
+        logger.error("Face alignment failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Face alignment failed internally")
+
+    if face is None:
+        logger.info("SCAN result=no_face  reason=align_returned_none  box=%s", box)
+        return ScanAttendanceResponse(
+            status="no_face",
+            message="Could not crop face from image. Please reposition.",
+        )
+
+    logger.debug("SCAN step 4: aligned face shape=%s", face.shape)
+
+    # ── 5. Extract embedding ──────────────────────────────────────────────────
+    embedder = request.app.state.embedder
+    logger.debug("SCAN step 5: extracting embedding")
+    try:
+        embedding = embedder.get_embedding(face)
+    except Exception as exc:
+        logger.error("Embedding extraction failed: %s", exc, exc_info=True)
+        raise EmbeddingError()
+
+    if embedding is None:
+        logger.info("SCAN result=no_face  reason=embedding_is_none")
+        return ScanAttendanceResponse(
+            status="no_face",
+            message="Face detected but features could not be extracted. Try better lighting.",
+        )
+
+    logger.debug("SCAN step 5: embedding shape=%s", embedding.shape)
+
+    # ── 6. Load stored embeddings & match ─────────────────────────────────────
+    face_db = FaceDatabase(conn)
+    try:
+        face_data = face_db.get_all_embeddings_by_user_id()
+    except Exception as exc:
+        logger.error("DB error fetching embeddings: %s", exc)
+        raise DatabaseError("Failed to load face embeddings from database") from exc
+
+    total_stored = sum(len(d["embeddings"]) for d in face_data.values())
+    logger.debug("SCAN step 6: loaded %d users, %d total embeddings", len(face_data), total_stored)
+
+    if not face_data:
+        logger.info("SCAN result=no_match  reason=no_registered_embeddings")
+        return ScanAttendanceResponse(
+            status="no_match",
+            message="No registered users with face data. Please register first.",
+        )
+
+    matched_id, matched_name, score = _match_embedding(embedding, face_data)
+    logger.debug(
+        "SCAN step 6: best_match=%s  name=%s  score=%.4f  threshold=%.2f",
+        matched_id, matched_name, score, MATCH_THRESHOLD,
+    )
+
+    if matched_id is None:
+        logger.info("SCAN result=no_match  best_score=%.4f  threshold=%.2f", score, MATCH_THRESHOLD)
+        return ScanAttendanceResponse(
+            status="no_match",
+            message="No matching registered user found.",
+            confidence=round(score, 4),
+        )
+
+    # ── 7. Check existing attendance ──────────────────────────────────────────
+    today = datetime.now().date().isoformat()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT time FROM attendance WHERE user_id = ? AND date = ?",
+            (matched_id, today),
+        )
+        existing = cursor.fetchone()
+    except sqlite3.Error as exc:
+        logger.error("DB error checking existing attendance: %s", exc)
+        raise DatabaseError() from exc
+
+    if existing:
+        logger.info(
+            "SCAN result=already_marked  user=%s  id=%d  checked_in_at=%s",
+            matched_name, matched_id, existing["time"],
+        )
+        return ScanAttendanceResponse(
+            status="already_marked",
+            name=matched_name,
+            time=existing["time"],
+            user_id=matched_id,
+            message=f"{matched_name} already checked in today.",
+            confidence=round(score, 4),
+        )
+
+    # ── 8. Record attendance ──────────────────────────────────────────────────
+    mark_time = datetime.now().strftime("%H:%M:%S")
+    try:
+        cursor.execute(
+            "INSERT INTO attendance (user_id, date, time) VALUES (?, ?, ?)",
+            (matched_id, today, mark_time),
+        )
+        conn.commit()
+    except sqlite3.Error as exc:
+        logger.error("DB error inserting attendance: %s", exc)
+        raise DatabaseError("Failed to record attendance") from exc
+
+    logger.info(
+        "SCAN result=marked  user=%s  id=%d  time=%s  confidence=%.4f",
+        matched_name, matched_id, mark_time, score,
+    )
+    return ScanAttendanceResponse(
+        status="marked",
+        name=matched_name,
+        time=mark_time,
+        user_id=matched_id,
+        message=f"Attendance marked for {matched_name}.",
+        confidence=round(score, 4),
+    )
 
 
 @router.get("/attendance", response_model=list[AttendanceRecordResponse])
 def list_attendance(
-	date: Optional[str] = Query(default=None, description="YYYY-MM-DD"),
-	conn=Depends(get_connection),
+    date: Optional[str] = Query(default=None, description="YYYY-MM-DD"),
+    conn=Depends(get_connection),
 ):
-	cursor = conn.cursor()
+    try:
+        cursor = conn.cursor()
+        base_sql = """
+            SELECT attendance.id, attendance.user_id, users.name,
+                   attendance.date, attendance.time
+            FROM attendance
+            JOIN users ON users.id = attendance.user_id
+        """
+        if date:
+            cursor.execute(
+                base_sql + " WHERE attendance.date = ? ORDER BY attendance.time DESC",
+                (date,),
+            )
+        else:
+            cursor.execute(base_sql + " ORDER BY attendance.date DESC, attendance.time DESC")
 
-	if date:
-		cursor.execute(
-			"""
-			SELECT attendance.id, attendance.user_id, users.name, attendance.date, attendance.time
-			FROM attendance
-			JOIN users ON users.id = attendance.user_id
-			WHERE attendance.date = ?
-			ORDER BY attendance.date DESC, attendance.time DESC
-			""",
-			(date,),
-		)
-	else:
-		cursor.execute(
-			"""
-			SELECT attendance.id, attendance.user_id, users.name, attendance.date, attendance.time
-			FROM attendance
-			JOIN users ON users.id = attendance.user_id
-			ORDER BY attendance.date DESC, attendance.time DESC
-			"""
-		)
+        rows = cursor.fetchall()
+    except sqlite3.Error as exc:
+        logger.error("DB error listing attendance: %s", exc)
+        raise DatabaseError() from exc
 
-	rows = cursor.fetchall()
-
-	return [
-		AttendanceRecordResponse(
-			id=row["id"],
-			user_id=row["user_id"],
-			name=row["name"],
-			date=row["date"],
-			time=row["time"],
-		)
-		for row in rows
-	]
+    return [
+        AttendanceRecordResponse(
+            id=r["id"],
+            user_id=r["user_id"],
+            name=r["name"],
+            date=r["date"],
+            time=r["time"],
+        )
+        for r in rows
+    ]
 
 
 @router.get("/stats/today", response_model=StatsTodayResponse)
 def get_today_stats(conn=Depends(get_connection)):
-	today = datetime.now().date().isoformat()
-	cursor = conn.cursor()
+    today = datetime.now().date().isoformat()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) AS total_users FROM users")
+        total_users: int = cursor.fetchone()["total_users"]
 
-	cursor.execute("SELECT COUNT(*) AS total_users FROM users")
-	total_users = cursor.fetchone()["total_users"]
+        cursor.execute(
+            """
+            SELECT COUNT(DISTINCT user_id) AS present_users
+            FROM attendance WHERE date = ?
+            """,
+            (today,),
+        )
+        present_users: int = cursor.fetchone()["present_users"]
+    except sqlite3.Error as exc:
+        logger.error("DB error fetching today stats: %s", exc)
+        raise DatabaseError() from exc
 
-	cursor.execute(
-		"""
-		SELECT COUNT(DISTINCT user_id) AS present_users
-		FROM attendance
-		WHERE date = ?
-		""",
-		(today,),
-	)
-	present_users = cursor.fetchone()["present_users"]
+    attendance_percent = (
+        round((present_users / total_users) * 100, 2) if total_users > 0 else 0.0
+    )
 
-	attendance_percent = 0.0
-	if total_users > 0:
-		attendance_percent = round((present_users / total_users) * 100, 2)
-
-	return StatsTodayResponse(
-		date=today,
-		total_users=total_users,
-		present_users=present_users,
-		attendance_percent=attendance_percent,
-	)
+    return StatsTodayResponse(
+        date=today,
+        total_users=total_users,
+        present_users=present_users,
+        attendance_percent=attendance_percent,
+    )
 
 
 ================================================================================
 FILE: api/server.py
 ================================================================================
 
+import logging
+import os
+from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.errors import AppError, app_error_handler, unhandled_error_handler
 from api.routes import init_database, router
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+os.makedirs("logs", exist_ok=True)
+
+_fmt = logging.Formatter(
+    "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+_console = logging.StreamHandler()
+_console.setLevel(logging.INFO)
+_console.setFormatter(_fmt)
+
+_file = RotatingFileHandler(
+    "logs/attendance.log",
+    maxBytes=5 * 1024 * 1024,   # 5 MB per file
+    backupCount=3,
+    encoding="utf-8",
+)
+_file.setLevel(logging.DEBUG)   # capture DEBUG too so scan pipeline is traceable
+_file.setFormatter(_fmt)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+root_logger.addHandler(_console)
+root_logger.addHandler(_file)
+
+logger = logging.getLogger(__name__)
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Runs once on startup and once on shutdown.
+
+    Startup order:
+      1. Initialise SQLite schema (idempotent).
+      2. Load FaceDetector + FaceAligner (fast, pure-OpenCV/MediaPipe).
+      3. Load FaceEmbedder (lazy-loads the ArcFace ONNX model — can be slow).
+
+    If the vision pipeline fails to load the API still starts; face-scan
+    endpoints will return 503 until the problem is resolved.
+    """
+
+    logger.info("=" * 60)
+    logger.info("Smart Attendance API — session start")
+    logger.info("=" * 60)
+
+    # ── 1. Database ───────────────────────────────────────────────────────────
+    logger.info("Initialising database schema...")
+    try:
+        init_database()
+        logger.info("Database ready")
+    except Exception as exc:
+        logger.critical("Database initialisation failed: %s", exc)
+        raise  # hard failure — no point continuing without a DB
+
+    # ── 2 & 3. Vision pipeline ────────────────────────────────────────────────
+    logger.info("Loading vision pipeline (detector / aligner / embedder)...")
+    try:
+        from vision.aligner import FaceAligner
+        from vision.detector import FaceDetector
+        from vision.embedder import FaceEmbedder
+
+        app.state.detector = FaceDetector()
+        logger.info("FaceDetector ready")
+
+        app.state.aligner = FaceAligner()
+        logger.info("FaceAligner ready")
+
+        embedder = FaceEmbedder()
+        embedder._ensure_model_loaded()          # trigger eager load here
+        app.state.embedder = embedder
+        app.state.model_ready = True
+        logger.info("FaceEmbedder (ArcFace) ready — face scan is available")
+
+    except Exception as exc:
+        logger.error(
+            "Vision pipeline failed to load: %s  |  "
+            "Face-scan endpoints will return 503 until this is fixed.",
+            exc,
+        )
+        # Attach None-safe stubs so attribute access never raises AttributeError
+        app.state.detector = None
+        app.state.aligner = None
+        app.state.embedder = None
+        app.state.model_ready = False
+
+    yield  # ←── application runs here
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    logger.info("Smart Attendance API shutting down")
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
 
 
 app = FastAPI(
     title="Smart Attendance API",
     version="1.0.0",
-    description="Prototype-ready backend for user registration and attendance tracking.",
+    description="Face-recognition-based attendance tracking backend.",
+    lifespan=lifespan,
 )
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
 
 app.add_middleware(
     CORSMiddleware,
@@ -281,11 +912,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Exception handlers ────────────────────────────────────────────────────────
+# Order matters: the specific AppError handler must be registered first so
+# FastAPI picks it up before the catch-all Exception handler.
 
-@app.on_event("startup")
-def on_startup() -> None:
-    init_database()
+app.add_exception_handler(AppError, app_error_handler)          # type: ignore[arg-type]
+app.add_exception_handler(Exception, unhandled_error_handler)   # type: ignore[arg-type]
 
+# ── Routers ───────────────────────────────────────────────────────────────────
 
 app.include_router(router, prefix="/api")
 
@@ -343,315 +977,6 @@ class AttendanceService:
 		self.conn.commit()
 
 		return True
-
-
-================================================================================
-FILE: attendance/register_user.py
-================================================================================
-
-import time
-
-import cv2
-
-
-class UserRegistrar:
-
-    def __init__(self, camera, detector, aligner, embedder, db):
-        self.camera = camera
-        self.detector = detector
-        self.aligner = aligner
-        self.embedder = embedder
-        self.db = db
-
-    def register(self, name, max_embeddings=10, capture_time=30):
-
-        print(f"\nRegistering user: {name}")
-        print("Look at the camera and move slightly.\n")
-
-        user_id = self.db.add_user(name)
-
-        # 3-second countdown so user can get into position.
-        for i in range(3, 0, -1):
-            frame = self.camera.read_frame()
-            cv2.putText(
-                frame,
-                f"Starting in {i}...",
-                (30, 60),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.8,
-                (0, 255, 255),
-                3,
-            )
-            cv2.imshow("Registration", frame)
-            cv2.waitKey(1)
-            time.sleep(1)
-
-        print("Go!\n")
-
-        start_time = time.time()
-        embeddings_captured = 0
-
-        while True:
-
-            frame = self.camera.read_frame()
-
-            boxes = self.detector.detect_faces(frame)
-
-            for box in boxes:
-
-                face = self.aligner.align_face(frame, box)
-
-                if face is None:
-                    continue
-
-                embedding = self.embedder.get_embedding(face)
-
-                if embedding is None:
-                    continue
-
-                if embeddings_captured < max_embeddings:
-
-                    self.db.add_embedding(user_id, embedding)
-
-                    embeddings_captured += 1
-
-                    print(f"Captured {embeddings_captured}/{max_embeddings}")
-
-                    time.sleep(0.2)
-
-            cv2.imshow("Registration", frame)
-
-            if embeddings_captured >= max_embeddings:
-                break
-
-            if time.time() - start_time > capture_time:
-                break
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-        cv2.destroyWindow("Registration")
-        print("Registration complete.\n")
-
-
-================================================================================
-FILE: camera/camera_stream.py
-================================================================================
-
-import os
-
-os.environ["QT_QPA_PLATFORM"] = "xcb"
-
-import cv2
-
-
-class CameraStream:
-	def __init__(self, camera_index=0):
-		self.camera_index = camera_index
-		self.cap = None
-
-	def start(self):
-		"""Initialize the webcam."""
-		self.cap = cv2.VideoCapture(self.camera_index)
-
-		if not self.cap.isOpened():
-			raise RuntimeError(f"Unable to open camera at index {self.camera_index}")
-
-		# Optional settings for smoother capture.
-		self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-		self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-		self.cap.set(cv2.CAP_PROP_FPS, 30)
-
-	def read_frame(self):
-		"""Read a single frame from the camera."""
-		ret, frame = self.cap.read()
-
-		if not ret:
-			raise RuntimeError("Failed to read frame from camera")
-
-		return frame
-
-	def release(self):
-		"""Release camera resources."""
-		if self.cap:
-			self.cap.release()
-		cv2.destroyAllWindows()
-
-
-================================================================================
-FILE: dashboard/app.py
-================================================================================
-
-import pandas as pd
-import requests
-import streamlit as st
-
-
-st.title("Smart Attendance Dashboard")
-
-default_api_url = "http://127.0.0.1:8000/api"
-api_base = st.sidebar.text_input("API Base URL", value=default_api_url).rstrip("/")
-
-
-def safe_get(path, params=None):
-    try:
-        response = requests.get(
-            f"{api_base}{path}",
-            params=params,
-            timeout=8,
-        )
-        response.raise_for_status()
-        return response.json(), None
-    except requests.RequestException as exc:
-        return None, str(exc)
-
-
-def safe_post(path, payload):
-    try:
-        response = requests.post(
-            f"{api_base}{path}",
-            json=payload,
-            timeout=8,
-        )
-        response.raise_for_status()
-        return response.json(), None
-    except requests.RequestException as exc:
-        return None, str(exc)
-
-
-health, health_error = safe_get("/health")
-if health_error:
-    st.sidebar.error("API unreachable")
-else:
-    st.sidebar.success("API connected")
-
-stats, stats_error = safe_get("/stats/today")
-if stats and not stats_error:
-    st.sidebar.metric("Present Today", f"{stats['present_users']}/{stats['total_users']}")
-    st.sidebar.metric("Attendance %", f"{stats['attendance_percent']}%")
-
-menu = st.sidebar.selectbox(
-    "Menu",
-    [
-        "Register User",
-        "Users",
-        "Attendance",
-        "Export",
-    ],
-)
-
-# REGISTER USER
-if menu == "Register User":
-
-    st.header("Register New Student")
-
-    name = st.text_input("Student Name")
-
-    if st.button("Register"):
-        if name.strip():
-            result, error = safe_post("/users", {"name": name.strip()})
-            if error:
-                st.error(f"Failed to register user: {error}")
-            else:
-                st.success(f"Registered {result['name']} (ID: {result['id']})")
-        else:
-            st.warning("Please enter a student name.")
-
-    st.subheader("Quick Attendance Mark")
-    users, users_error = safe_get("/users")
-    if users_error:
-        st.error(f"Unable to fetch users: {users_error}")
-    elif users:
-        user_options = {f"{u['name']} (ID: {u['id']})": u["id"] for u in users}
-        selected_label = st.selectbox("Select User", list(user_options.keys()))
-        if st.button("Mark Attendance"):
-            mark_result, mark_error = safe_post(
-                "/attendance/mark",
-                {"user_id": user_options[selected_label]},
-            )
-            if mark_error:
-                st.error(f"Failed to mark attendance: {mark_error}")
-            else:
-                status = mark_result.get("status", "unknown")
-                if status == "already_marked":
-                    st.info("Attendance already marked for today.")
-                else:
-                    st.success("Attendance marked successfully.")
-    else:
-        st.info("No users found. Register a user first.")
-
-# USER LIST
-elif menu == "Users":
-
-    st.header("Registered Users")
-
-    users, error = safe_get("/users")
-    if error:
-        st.error(f"Unable to fetch users: {error}")
-    else:
-        df = pd.DataFrame(users)
-        st.dataframe(df, use_container_width=True)
-
-# ATTENDANCE TABLE
-elif menu == "Attendance":
-
-    st.header("Attendance Records")
-
-    filter_today = st.checkbox("Show only today", value=False)
-
-    params = None
-    if filter_today:
-        params = {"date": pd.Timestamp.now().date().isoformat()}
-
-    records, error = safe_get("/attendance", params=params)
-
-    if error:
-        st.error(f"Unable to fetch attendance: {error}")
-    else:
-        df = pd.DataFrame(records)
-        st.dataframe(df, use_container_width=True)
-
-# EXPORT REPORT
-elif menu == "Export":
-
-    st.header("Export Attendance Report")
-
-    records, error = safe_get("/attendance")
-    if error:
-        st.error(f"Unable to fetch attendance: {error}")
-    else:
-        df = pd.DataFrame(records)
-        csv = df.to_csv(index=False)
-
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name="attendance_report.csv",
-            mime="text/csv",
-        )
-
-
-================================================================================
-FILE: database/db.py
-================================================================================
-
-import sqlite3
-from pathlib import Path
-
-
-class Database:
-	def __init__(self, db_path="attendance.db"):
-		self.db_path = db_path
-		self.conn = None
-
-	def connect(self):
-		self.conn = sqlite3.connect(self.db_path)
-		self.conn.row_factory = sqlite3.Row
-		return self.conn
-
-	def close(self):
-		if self.conn:
-			self.conn.close()
 
 
 ================================================================================
@@ -752,6 +1077,38 @@ class FaceDatabase:
 
 		return embeddings
 
+	def get_all_embeddings_by_user_id(self) -> dict:
+		"""
+		Returns embeddings keyed by user_id so the scan endpoint can mark
+		attendance by ID without ambiguity from duplicate names.
+
+		Shape: { user_id: {"name": str, "embeddings": [np.ndarray]} }
+		Silently skips corrupt blobs rather than crashing.
+		"""
+		cursor = self.conn.cursor()
+		cursor.execute("""
+			SELECT users.id AS user_id, users.name, face_embeddings.embedding
+			FROM face_embeddings
+			JOIN users ON users.id = face_embeddings.user_id
+		""")
+		rows = cursor.fetchall()
+
+		result: dict = {}
+		for row in rows:
+			uid = row["user_id"]
+			try:
+				embedding = np.frombuffer(row["embedding"], dtype=np.float32).copy()
+				if embedding.size == 0:
+					continue
+			except Exception:
+				continue
+
+			if uid not in result:
+				result[uid] = {"name": row["name"], "embeddings": []}
+			result[uid]["embeddings"].append(embedding)
+
+		return result
+
 	def get_user_id(self, name):
 
 		cursor = self.conn.cursor()
@@ -770,213 +1127,510 @@ class FaceDatabase:
 
 
 ================================================================================
-FILE: main.py
+FILE: frontend/api.js
 ================================================================================
 
-import os
-import time
-from collections import defaultdict
+const API_BASE = "http://127.0.0.1:8000/api";
 
-os.environ["QT_QPA_PLATFORM"] = "xcb"
+const API = {
+    async checkHealth() {
+        const res = await fetch(`${API_BASE}/health`);
+        return res.json();
+    },
 
-import cv2
+    async scanAttendance(imageBase64) {
+        const response = await fetch(`${API_BASE}/attendance/scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageBase64 })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "Server error");
+        }
+        return response.json();
+    },
 
-from attendance.attendance_service import AttendanceService
-from attendance.register_user import UserRegistrar
-from camera.camera_stream import CameraStream
-from database.db import Database
-from database.models import FaceDatabase
-from recognition.matcher import FaceMatcher
-from vision.aligner import FaceAligner
-from vision.detector import FaceDetector
-from vision.embedder import FaceEmbedder
+    async registerUser(name, images) {
+        const response = await fetch(`${API_BASE}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, images })
+        });
+        return response.json();
+    },
 
+    async getAttendance() {
+        const response = await fetch(`${API_BASE}/attendance`);
+        return response.json();
+    },
 
-PERSISTENCE_TIME = 1.0
-DETECTION_INTERVAL = 3
-CACHE_TIME = 0.5
-
-
-def main():
-    # --- Database setup ---
-    database = Database()
-    conn = database.connect()
-    face_db = FaceDatabase(conn)
-    attendance_service = AttendanceService(conn)
-
-    # --- Pipeline components ---
-    camera = CameraStream(camera_index=0)
-    detector = FaceDetector()
-    aligner = FaceAligner()
-    embedder = FaceEmbedder()
-    matcher = FaceMatcher()
-
-    camera.start()
-
-    # Brief warm-up so the webcam exposure stabilises.
-    print("Camera warming up...")
-    for _ in range(10):
-        camera.read_frame()
-
-    # --- Registration ---
-    registrar = UserRegistrar(camera, detector, aligner, embedder, face_db)
-    name = input("Enter new user name to register (or press Enter to skip): ").strip()
-    if name:
-        registrar.register(name)
-
-    # --- Load all DB embeddings into matcher ---
-    matcher.known_embeddings = face_db.get_all_embeddings()
-    print(f"Loaded {sum(len(v) for v in matcher.known_embeddings.values())} embeddings "
-          f"for {len(matcher.known_embeddings)} user(s).\n")
-
-    # --- Runtime stabilizers ---
-    face_presence = defaultdict(lambda: {"first_seen": None, "last_seen": None})
-    frame_count = 0
-    last_name = None
-    last_score = -1.0
-    last_update = 0.0
-    last_label = "Detecting..."
-    last_color = (255, 255, 0)
-
-    # --- Recognition loop ---
-    while True:
-        frame = camera.read_frame()
-        frame_count += 1
-
-        boxes = detector.detect_faces(frame)
-
-        if not boxes:
-            for record in face_presence.values():
-                record["first_seen"] = None
-                record["last_seen"] = None
-            last_label = "No Face"
-            last_color = (0, 0, 255)
-            cv2.imshow("Recognition Test", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-            continue
-
-        # Keep only the largest face to reduce false positives.
-        boxes = sorted(
-            boxes,
-            key=lambda b: (b[2] - b[0]) * (b[3] - b[1]),
-            reverse=True,
-        )
-        box = boxes[0]
-
-        x1, y1, x2, y2 = box
-
-        # Draw baseline box even on skipped frames.
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
-
-        if frame_count % DETECTION_INTERVAL != 0:
-            cv2.putText(
-                frame,
-                f"{last_label} | Processing...",
-                (x1, y1 - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                last_color,
-                2,
-            )
-            cv2.imshow("Recognition Test", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-            continue
-
-        face = aligner.align_face(frame, box)
-
-        if face is None:
-            last_label = "Face Not Clear"
-            last_color = (0, 165, 255)
-            cv2.imshow("Recognition Test", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-            continue
-
-        embedding = embedder.get_embedding(face)
-
-        if embedding is None:
-            last_label = "Embedding Failed"
-            last_color = (0, 165, 255)
-            cv2.imshow("Recognition Test", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-            continue
-
-        current_time = time.time()
-        if current_time - last_update < CACHE_TIME:
-            name, score = last_name, last_score
-        else:
-            name, score = matcher.match_embedding(embedding)
-            last_name = name
-            last_score = score
-            last_update = current_time
-
-        if name:
-            # Reset timer if the identity was not continuously visible.
-            if (
-                face_presence[name]["last_seen"] is not None
-                and current_time - face_presence[name]["last_seen"] > 0.5
-            ):
-                face_presence[name]["first_seen"] = None
-
-            if face_presence[name]["first_seen"] is None:
-                face_presence[name]["first_seen"] = current_time
-
-            face_presence[name]["last_seen"] = current_time
-
-            elapsed = current_time - face_presence[name]["first_seen"]
-
-            if elapsed < PERSISTENCE_TIME:
-                label = f"{name} (Hold Still {PERSISTENCE_TIME - elapsed:.1f}s)"
-                color = (0, 165, 255)
-            else:
-                user_id = face_db.get_user_id(name)
-
-                if user_id is None:
-                    label = f"{name} (User Missing)"
-                    color = (0, 165, 255)
-                elif attendance_service.has_attended_today(user_id):
-                    label = f"{name} (Already Marked)"
-                    color = (0, 255, 255)
-                else:
-                    attendance_service.mark_attendance(user_id)
-                    label = f"{name} (Attendance Marked)"
-                    color = (0, 255, 0)
-        else:
-            for record in face_presence.values():
-                record["first_seen"] = None
-                record["last_seen"] = None
-            label = "Unknown"
-            color = (0, 0, 255)
-
-        last_label = label
-        last_color = color
-
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(
-            frame,
-            label,
-            (x1, y1 - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            color,
-            2,
-        )
-
-        cv2.imshow("Recognition Test", frame)
-
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-    camera.release()
-    database.close()
+    async getTodayStats() {
+        const response = await fetch(`${API_BASE}/stats/today`);
+        return response.json();
+    }
+};
 
 
-if __name__ == "__main__":
-    main()
+================================================================================
+FILE: frontend/app.js
+================================================================================
+
+const App = {
+    stream: null,
+    capturedImages: [],
+
+
+    // --- Media Helpers ---
+    async startWebcam(videoId) {
+        try {
+            this.stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            const video = document.getElementById(videoId);
+            video.srcObject = this.stream;
+        } catch (err) {
+            console.error("Webcam Error:", err);
+            alert("Could not access webcam. Please ensure permissions are granted.");
+        }
+    },
+
+    captureFrame(videoId) {
+        const video = document.getElementById(videoId);
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        return canvas.toDataURL('image/jpeg', 0.8);
+    },
+
+    // --- Page: Scan ---
+    async initScanPage() {
+        await this.startWebcam('webcam');
+        const overlay = document.getElementById('scan-overlay');
+        const statusBox = document.getElementById('status-box');
+        const statusMsg = document.getElementById('status-message');
+        const statusDetail = document.getElementById('status-detail');
+
+        overlay.innerText = "Scanning Active";
+
+        // Poll API every 2 seconds 
+        setInterval(async () => {
+            try {
+                const b64 = this.captureFrame('webcam');
+                const result = await API.scanAttendance(b64);
+                this.updateScanUI(result, statusBox, statusMsg, statusDetail);
+            } catch (err) {
+                statusMsg.innerText = "Connection Error";
+                statusDetail.innerText = err.message;
+            }
+        }, 2000);
+    },
+
+    updateScanUI(res, box, msg, detail) {
+        box.className = "status-box";
+        msg.innerText = res.message || res.status;
+        
+        switch(res.status) {
+            case 'marked':
+                box.classList.add('status-success');
+                detail.innerText = `Welcome, ${res.name}! Recorded at ${res.time}`;
+                break;
+            case 'already_marked':
+                box.classList.add('status-warning');
+                detail.innerText = `You checked in at ${res.time}`;
+                break;
+            case 'no_match':
+                box.classList.add('status-error');
+                detail.innerText = "Face not recognized. Please register.";
+                break;
+            default:
+                box.classList.add('status-warning');
+                detail.innerText = "Keep your face visible and still.";
+        }
+    },
+
+    // --- Page: Register ---
+    async initRegisterPage() {
+        await this.startWebcam('webcam');
+        const captureBtn = document.getElementById('capture-btn');
+        const submitBtn = document.getElementById('submit-reg');
+        const status = document.getElementById('reg-status');
+
+        captureBtn.addEventListener('click', () => {
+            if (this.capturedImages.length < 3) {
+                const b64 = this.captureFrame('webcam');
+                this.capturedImages.push(b64);
+                captureBtn.innerText = `Capture Image (${this.capturedImages.length}/3)`;
+                if (this.capturedImages.length === 3) submitBtn.disabled = false;
+            }
+        });
+
+        submitBtn.addEventListener('click', async () => {
+            const name = document.getElementById('username').value;
+            if (!name) return alert("Please enter a name");
+            
+            submitBtn.disabled = true;
+            status.innerText = "Processing registration...";
+            status.classList.remove('hidden');
+
+            const res = await API.registerUser(name, this.capturedImages);
+            status.innerHTML = `
+                <strong>Registration Success!</strong><br>
+                Embeddings Stored: ${res.embeddings_stored}<br>
+                Failed: ${res.embeddings_failed}
+            `;
+            this.capturedImages = [];
+            captureBtn.innerText = "Capture Image (0/3)";
+        });
+    },
+
+    // --- Data Loading ---
+    async loadAttendance() {
+        const data = await API.getAttendance();
+        const body = document.getElementById('attendance-body');
+        body.innerHTML = data.map(row => `
+            <tr>
+                <td>${row.user_id}</td>
+                <td>${row.name}</td>
+                <td>${row.date}</td>
+                <td>${row.time}</td>
+            </tr>
+        `).join('');
+    },
+
+    async loadStats() {
+        const stats = await API.getTodayStats();
+        document.getElementById('stat-total').innerText = stats.total_users;
+        document.getElementById('stat-present').innerText = stats.present_users;
+        document.getElementById('stat-percent').innerText = stats.attendance_percent + "%";
+    }
+};
+
+
+================================================================================
+FILE: frontend/attendance.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Records | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html" class="active">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card">
+            <h2>Attendance Log</h2>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>User ID</th>
+                            <th>Name</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadAttendance();
+        });
+    </script>
+</body>
+</html>
+
+
+================================================================================
+FILE: frontend/index.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Attendance | Home</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container centered">
+        <section class="hero">
+            <h1>Welcome to Smart Attendance</h1>
+            <p>Automated face-recognition based check-in system.</p>
+            <div class="actions">
+                <a href="scan.html" class="btn btn-primary">Start Scanning</a>
+                <a href="register.html" class="btn btn-secondary">New Registration</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
+
+
+================================================================================
+FILE: frontend/register.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html" class="active">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card">
+            <h2>User Registration</h2>
+            <div class="form-group">
+                <label for="username">Full Name</label>
+                <input type="text" id="username" placeholder="Enter name..." required>
+            </div>
+
+            <div class="video-wrapper small">
+                <video id="webcam" autoplay playsinline></video>
+            </div>
+
+            <div class="registration-controls">
+                <button id="capture-btn" class="btn btn-secondary">Capture Image (0/3)</button>
+                <button id="submit-reg" class="btn btn-primary" disabled>Register User</button>
+            </div>
+
+            <div id="reg-status" class="status-box hidden"></div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.initRegisterPage();
+        });
+    </script>
+</body>
+</html>
+
+
+================================================================================
+FILE: frontend/scan.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Face | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html" class="active">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card scan-container">
+            <h2>Live Attendance Scan</h2>
+            <div class="video-wrapper">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="capture-canvas" style="display:none;"></canvas>
+                <div id="scan-overlay" class="overlay">Initializing...</div>
+            </div>
+            
+            <div id="status-box" class="status-box">
+                <p id="status-message">Waiting for camera...</p>
+                <small id="status-detail">Align your face in the center of the frame.</small>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        // Specific logic for Scan page
+        window.addEventListener('load', () => {
+            App.initScanPage();
+        });
+    </script>
+</body>
+</html>
+
+
+================================================================================
+FILE: frontend/stats.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html" class="active">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <h2>Daily Statistics</h2>
+        <div class="stats-grid">
+            <div class="card stat-card">
+                <h3>Total Users</h3>
+                <p id="stat-total">-</p>
+            </div>
+            <div class="card stat-card">
+                <h3>Present Today</h3>
+                <p id="stat-present">-</p>
+            </div>
+            <div class="card stat-card">
+                <h3>Attendance %</h3>
+                <p id="stat-percent">-</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadStats();
+        });
+    </script>
+</body>
+</html>
+
+
+================================================================================
+FILE: frontend/styles.css
+================================================================================
+
+:root {
+    --bg-main: #0f172a;
+    --bg-card: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent: #3b82f6;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --error: #ef4444;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+.container { max-width: 1000px; margin: 0 auto; padding: 0 1rem; }
+.centered { display: flex; align-items: center; justify-content: center; min-height: 80vh; text-align: center; }
+
+/* Navbar */
+.navbar { background: #111; padding: 1rem 0; border-bottom: 1px solid #333; }
+.navbar .container { display: flex; justify-content: space-between; align-items: center; }
+.logo { font-weight: bold; font-size: 1.5rem; color: var(--accent); text-decoration: none; }
+.nav-links { list-style: none; display: flex; gap: 1.5rem; }
+.nav-links a { color: var(--text-secondary); text-decoration: none; transition: 0.3s; }
+.nav-links a:hover, .nav-links a.active { color: var(--text-primary); }
+
+/* UI Components */
+.card { background: var(--bg-card); padding: 2rem; border-radius: 0.75rem; margin: 2rem 0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
+.btn { padding: 0.75rem 1.5rem; border-radius: 0.5rem; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-secondary { background: #475569; color: white; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Video Handling */
+.video-wrapper { position: relative; width: 100%; max-width: 640px; margin: 1rem auto; background: #000; border-radius: 0.5rem; overflow: hidden; aspect-ratio: 4/3; }
+video { width: 100%; height: 100%; object-fit: cover; }
+.overlay { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 0.5rem; border-radius: 0.25rem; font-size: 0.8rem; }
+
+/* Forms & Tables */
+.form-group { margin-bottom: 1.5rem; }
+input { width: 100%; padding: 0.75rem; border-radius: 0.4rem; border: 1px solid #334155; background: #0f172a; color: white; margin-top: 0.5rem; }
+table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+th, td { padding: 1rem; text-align: left; border-bottom: 1px solid #334155; }
+th { color: var(--text-secondary); text-transform: uppercase; font-size: 0.8rem; }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, min-minmax(250px, 1fr)); gap: 1.5rem; }
+.stat-card h3 { color: var(--text-secondary); font-size: 1rem; margin-bottom: 0.5rem; }
+.stat-card p { font-size: 2.5rem; font-weight: bold; color: var(--accent); }
+
+/* Status Boxes */
+.status-box { padding: 1rem; border-radius: 0.5rem; margin-top: 1rem; text-align: center; border: 1px solid #334155; }
+.status-success { border-color: var(--success); color: var(--success); }
+.status-error { border-color: var(--error); color: var(--error); }
+.status-warning { border-color: var(--warning); color: var(--warning); }
+.hidden { display: none; }
 
 
 ================================================================================
@@ -1089,7 +1743,7 @@ def extract_python_files(root_dir, output_file):
         dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", ".pytest_cache", ".venv", "venv", "env"}]
         
         for file in files:
-            if file.endswith(".py"):
+            if file.endswith(".py") or file.endswith(".html") or file.endswith(".css") or file.endswith(".js"):
                 file_path = os.path.join(root, file)
                 py_files.append(file_path)
     
@@ -1156,67 +1810,6 @@ if __name__ == "__main__":
     print(f"Output file: {output_path}\n")
     
     extract_python_files(project_root, output_path)
-
-
-================================================================================
-FILE: recognition/matcher.py
-================================================================================
-
-import numpy as np
-
-
-class FaceMatcher:
-    def __init__(self, threshold=0.55):
-        self.threshold = threshold
-
-        # name -> list of embeddings
-        self.known_embeddings = {}
-
-    def add_embedding(self, name, embedding):
-        """
-        Add a new embedding for a user.
-        """
-        if name not in self.known_embeddings:
-            self.known_embeddings[name] = []
-
-        self.known_embeddings[name].append(embedding)
-
-    def cosine_similarity(self, emb1, emb2):
-        emb1 = np.array(emb1)
-        emb2 = np.array(emb2)
-
-        return np.dot(emb1, emb2) / (
-            np.linalg.norm(emb1) * np.linalg.norm(emb2)
-        )
-
-    def match_embedding(self, new_embedding):
-
-        best_user = None
-        best_score = -1
-
-        for name, embeddings in self.known_embeddings.items():
-
-            for stored_embedding in embeddings:
-
-                similarity = self.cosine_similarity(
-                    new_embedding,
-                    stored_embedding
-                )
-
-                if similarity > best_score:
-                    best_score = similarity
-                    best_user = name
-
-        if best_score >= self.threshold:
-            return best_user, best_score
-
-        return None, best_score
-
-
-================================================================================
-FILE: utils/config.py
-================================================================================
-
 
 
 ================================================================================
@@ -1411,5 +2004,5 @@ class FaceEmbedder:
 
 
 ================================================================================
-SUMMARY: 15 Python files extracted
+SUMMARY: 17 Python files extracted
 ================================================================================

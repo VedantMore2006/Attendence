@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Records | SAS - Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SAS<span>.</span></a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html" class="active">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card">
+            <h2>Attendance Log</h2>
+            <div class="form-group" style="max-width: 300px;">
+                <label for="date-filter">Filter by Date</label>
+                <input type="date" id="date-filter">
+            </div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>User ID</th>
+                            <th>Name</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-body">
+                        <tr><td colspan="4">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadAttendance();
+            
+            const dateFilter = document.getElementById('date-filter');
+            if (dateFilter) {
+                const today = new Date().toISOString().split('T')[0];
+                dateFilter.value = today;
+                
+                dateFilter.addEventListener('change', async () => {
+                    const tbody = document.getElementById('attendance-body');
+                    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading...</td></tr>';
+                    const data = await API.getAttendance(dateFilter.value);
+                    if (data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4">No records for this date</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = data.map(row => `
+                        <tr>
+                            <td>${row.user_id}</td>
+                            <td><strong>${row.name}</strong></td>
+                            <td>${row.date}</td>
+                            <td>${row.time}</td>
+                        </tr>
+                    `).join('');
+                });
+            }
+        });
+    </script>
+</body>
+</html>

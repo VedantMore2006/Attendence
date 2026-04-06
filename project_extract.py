@@ -104,7 +104,7 @@ def extract_python_files(root_dir, output_file):
         dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", ".pytest_cache", ".venv", "venv", "env"}]
         
         for file in files:
-            if file.endswith(".py"):
+            if file.endswith(".py") or file.endswith(".html") or file.endswith(".css") or file.endswith(".js"):
                 file_path = os.path.join(root, file)
                 py_files.append(file_path)
     

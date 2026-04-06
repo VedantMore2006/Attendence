@@ -1,0 +1,460 @@
+Place all the following files in a single folder named frontend.Open index.html in any modern web browser.1. index.htmlThe landing page provides navigation to the four main functional areas of the system.HTML<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Attendance | Home</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container centered">
+        <section class="hero">
+            <h1>Welcome to Smart Attendance</h1>
+            <p>Automated face-recognition based check-in system.</p>
+            <div class="actions">
+                <a href="scan.html" class="btn btn-primary">Start Scanning</a>
+                <a href="register.html" class="btn btn-secondary">New Registration</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
+2. scan.htmlThis is the core interface that accesses the webcam and sends periodic frames to the /api/attendance/scan endpoint.HTML<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Face | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html" class="active">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card scan-container">
+            <h2>Live Attendance Scan</h2>
+            <div class="video-wrapper">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="capture-canvas" style="display:none;"></canvas>
+                <div id="scan-overlay" class="overlay">Initializing...</div>
+            </div>
+            
+            <div id="status-box" class="status-box">
+                <p id="status-message">Waiting for camera...</p>
+                <small id="status-detail">Align your face in the center of the frame.</small>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        // Specific logic for Scan page
+        window.addEventListener('load', () => {
+            App.initScanPage();
+        });
+    </script>
+</body>
+</html>
+3. register.htmlAllows new users to be added by capturing multiple training images and sending them to the /api/users endpoint.HTML<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html" class="active">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card">
+            <h2>User Registration</h2>
+            <div class="form-group">
+                <label for="username">Full Name</label>
+                <input type="text" id="username" placeholder="Enter name..." required>
+            </div>
+
+            <div class="video-wrapper small">
+                <video id="webcam" autoplay playsinline></video>
+            </div>
+
+            <div class="registration-controls">
+                <button id="capture-btn" class="btn btn-secondary">Capture Image (0/3)</button>
+                <button id="submit-reg" class="btn btn-primary" disabled>Register User</button>
+            </div>
+
+            <div id="reg-status" class="status-box hidden"></div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.initRegisterPage();
+        });
+    </script>
+</body>
+</html>
+4. attendance.htmlDisplays a list of all successful attendance records by fetching data from /api/attendance.HTML<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Records | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html" class="active">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="card">
+            <h2>Attendance Log</h2>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>User ID</th>
+                            <th>Name</th>
+                            <th>Date</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadAttendance();
+        });
+    </script>
+</body>
+</html>
+5. stats.htmlA summary dashboard using data from the /api/stats/today endpoint.HTML<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats | Smart Attendance</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SmartScan AI</a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html" class="active">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <h2>Daily Statistics</h2>
+        <div class="stats-grid">
+            <div class="card stat-card">
+                <h3>Total Users</h3>
+                <p id="stat-total">-</p>
+            </div>
+            <div class="card stat-card">
+                <h3>Present Today</h3>
+                <p id="stat-present">-</p>
+            </div>
+            <div class="card stat-card">
+                <h3>Attendance %</h3>
+                <p id="stat-percent">-</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadStats();
+        });
+    </script>
+</body>
+</html>
+6. styles.cssA modern dark-theme stylesheet using standard CSS variables.CSS:root {
+    --bg-main: #0f172a;
+    --bg-card: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent: #3b82f6;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --error: #ef4444;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+.container { max-width: 1000px; margin: 0 auto; padding: 0 1rem; }
+.centered { display: flex; align-items: center; justify-content: center; min-height: 80vh; text-align: center; }
+
+/* Navbar */
+.navbar { background: #111; padding: 1rem 0; border-bottom: 1px solid #333; }
+.navbar .container { display: flex; justify-content: space-between; align-items: center; }
+.logo { font-weight: bold; font-size: 1.5rem; color: var(--accent); text-decoration: none; }
+.nav-links { list-style: none; display: flex; gap: 1.5rem; }
+.nav-links a { color: var(--text-secondary); text-decoration: none; transition: 0.3s; }
+.nav-links a:hover, .nav-links a.active { color: var(--text-primary); }
+
+/* UI Components */
+.card { background: var(--bg-card); padding: 2rem; border-radius: 0.75rem; margin: 2rem 0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
+.btn { padding: 0.75rem 1.5rem; border-radius: 0.5rem; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-secondary { background: #475569; color: white; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Video Handling */
+.video-wrapper { position: relative; width: 100%; max-width: 640px; margin: 1rem auto; background: #000; border-radius: 0.5rem; overflow: hidden; aspect-ratio: 4/3; }
+video { width: 100%; height: 100%; object-fit: cover; }
+.overlay { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 0.5rem; border-radius: 0.25rem; font-size: 0.8rem; }
+
+/* Forms & Tables */
+.form-group { margin-bottom: 1.5rem; }
+input { width: 100%; padding: 0.75rem; border-radius: 0.4rem; border: 1px solid #334155; background: #0f172a; color: white; margin-top: 0.5rem; }
+table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+th, td { padding: 1rem; text-align: left; border-bottom: 1px solid #334155; }
+th { color: var(--text-secondary); text-transform: uppercase; font-size: 0.8rem; }
+
+/* Stats */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, min-minmax(250px, 1fr)); gap: 1.5rem; }
+.stat-card h3 { color: var(--text-secondary); font-size: 1rem; margin-bottom: 0.5rem; }
+.stat-card p { font-size: 2.5rem; font-weight: bold; color: var(--accent); }
+
+/* Status Boxes */
+.status-box { padding: 1rem; border-radius: 0.5rem; margin-top: 1rem; text-align: center; border: 1px solid #334155; }
+.status-success { border-color: var(--success); color: var(--success); }
+.status-error { border-color: var(--error); color: var(--error); }
+.status-warning { border-color: var(--warning); color: var(--warning); }
+.hidden { display: none; }
+7. api.jsEncapsulates all network requests to match the backend structure.JavaScriptconst API_BASE = "http://127.0.0.1:8000/api";
+
+const API = {
+    async checkHealth() {
+        const res = await fetch(`${API_BASE}/health`);
+        return res.json();
+    },
+
+    async scanAttendance(imageBase64) {
+        const response = await fetch(`${API_BASE}/attendance/scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageBase64 })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "Server error");
+        }
+        return response.json();
+    },
+
+    async registerUser(name, images) {
+        const response = await fetch(`${API_BASE}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, images })
+        });
+        return response.json();
+    },
+
+    async getAttendance() {
+        const response = await fetch(`${API_BASE}/attendance`);
+        return response.json();
+    },
+
+    async getTodayStats() {
+        const response = await fetch(`${API_BASE}/stats/today`);
+        return response.json();
+    }
+};
+8. app.js
+The main logic controller that manages webcam streams and UI updates.JavaScriptconst App = {
+    stream: null,
+    capturedImages: [],
+
+
+    // --- Media Helpers ---
+    async startWebcam(videoId) {
+        try {
+            this.stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            const video = document.getElementById(videoId);
+            video.srcObject = this.stream;
+        } catch (err) {
+            console.error("Webcam Error:", err);
+            alert("Could not access webcam. Please ensure permissions are granted.");
+        }
+    },
+
+    captureFrame(videoId) {
+        const video = document.getElementById(videoId);
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+        return canvas.toDataURL('image/jpeg', 0.8);
+    },
+
+    // --- Page: Scan ---
+    async initScanPage() {
+        await this.startWebcam('webcam');
+        const overlay = document.getElementById('scan-overlay');
+        const statusBox = document.getElementById('status-box');
+        const statusMsg = document.getElementById('status-message');
+        const statusDetail = document.getElementById('status-detail');
+
+        overlay.innerText = "Scanning Active";
+
+        // Poll API every 2 seconds 
+        setInterval(async () => {
+            try {
+                const b64 = this.captureFrame('webcam');
+                const result = await API.scanAttendance(b64);
+                this.updateScanUI(result, statusBox, statusMsg, statusDetail);
+            } catch (err) {
+                statusMsg.innerText = "Connection Error";
+                statusDetail.innerText = err.message;
+            }
+        }, 2000);
+    },
+
+    updateScanUI(res, box, msg, detail) {
+        box.className = "status-box";
+        msg.innerText = res.message || res.status;
+        
+        switch(res.status) {
+            case 'marked':
+                box.classList.add('status-success');
+                detail.innerText = `Welcome, ${res.name}! Recorded at ${res.time}`;
+                break;
+            case 'already_marked':
+                box.classList.add('status-warning');
+                detail.innerText = `You checked in at ${res.time}`;
+                break;
+            case 'no_match':
+                box.classList.add('status-error');
+                detail.innerText = "Face not recognized. Please register.";
+                break;
+            default:
+                box.classList.add('status-warning');
+                detail.innerText = "Keep your face visible and still.";
+        }
+    },
+
+    // --- Page: Register ---
+    async initRegisterPage() {
+        await this.startWebcam('webcam');
+        const captureBtn = document.getElementById('capture-btn');
+        const submitBtn = document.getElementById('submit-reg');
+        const status = document.getElementById('reg-status');
+
+        captureBtn.addEventListener('click', () => {
+            if (this.capturedImages.length < 3) {
+                const b64 = this.captureFrame('webcam');
+                this.capturedImages.push(b64);
+                captureBtn.innerText = `Capture Image (${this.capturedImages.length}/3)`;
+                if (this.capturedImages.length === 3) submitBtn.disabled = false;
+            }
+        });
+
+        submitBtn.addEventListener('click', async () => {
+            const name = document.getElementById('username').value;
+            if (!name) return alert("Please enter a name");
+            
+            submitBtn.disabled = true;
+            status.innerText = "Processing registration...";
+            status.classList.remove('hidden');
+
+            const res = await API.registerUser(name, this.capturedImages);
+            status.innerHTML = `
+                <strong>Registration Success!</strong><br>
+                Embeddings Stored: ${res.embeddings_stored}<br>
+                Failed: ${res.embeddings_failed}
+            `;
+            this.capturedImages = [];
+            captureBtn.innerText = "Capture Image (0/3)";
+        });
+    },
+
+    // --- Data Loading ---
+    async loadAttendance() {
+        const data = await API.getAttendance();
+        const body = document.getElementById('attendance-body');
+        body.innerHTML = data.map(row => `
+            <tr>
+                <td>${row.user_id}</td>
+                <td>${row.name}</td>
+                <td>${row.date}</td>
+                <td>${row.time}</td>
+            </tr>
+        `).join('');
+    },
+
+    async loadStats() {
+        const stats = await API.getTodayStats();
+        document.getElementById('stat-total').innerText = stats.total_users;
+        document.getElementById('stat-present').innerText = stats.present_users;
+        document.getElementById('stat-percent').innerText = stats.attendance_percent + "%";
+    }
+};
