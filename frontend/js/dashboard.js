@@ -100,18 +100,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Scan result card
     // ──────────────────────────────────────────────────────────────────────────
 
-    const scanResultCard  = document.getElementById('scanResultCard');
+    const scanResultCard = document.getElementById('scanResultCard');
     const scanResultTitle = document.getElementById('scanResultTitle');
-    const scanResultSub   = document.getElementById('scanResultSub');
+    const scanResultSub = document.getElementById('scanResultSub');
     const scanStatusBadge = document.getElementById('scanStatusBadge');
 
     const SCAN_CONFIGS = {
-        marked:         { cls: 'scan-result-success', icon: 'check-circle',   title: 'Attendance Marked' },
-        already_marked: { cls: 'scan-result-warning', icon: 'clock',          title: 'Already Checked In' },
-        no_face:        { cls: 'scan-result-info',    icon: 'scan-face',      title: 'No Face Detected' },
-        no_match:       { cls: 'scan-result-error',   icon: 'user-x',         title: 'Not Recognised' },
-        api_error:      { cls: 'scan-result-error',   icon: 'server-crash',   title: 'Server Error' },
-        network_error:  { cls: 'scan-result-error',   icon: 'wifi-off',       title: 'Cannot Reach Server' },
+        marked: { cls: 'scan-result-success', icon: 'check-circle', title: 'Attendance Marked' },
+        already_marked: { cls: 'scan-result-warning', icon: 'clock', title: 'Already Checked In' },
+        no_face: { cls: 'scan-result-info', icon: 'scan-face', title: 'No Face Detected' },
+        no_match: { cls: 'scan-result-error', icon: 'user-x', title: 'Not Recognised' },
+        api_error: { cls: 'scan-result-error', icon: 'server-crash', title: 'Server Error' },
+        network_error: { cls: 'scan-result-error', icon: 'wifi-off', title: 'Cannot Reach Server' },
     };
 
     function showScanResult(status, sub = '') {
@@ -145,11 +145,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // ──────────────────────────────────────────────────────────────────────────
 
     const sections = {
-        'nav-dashboard':  'section-dashboard',
+        'nav-dashboard': 'section-dashboard',
         'nav-attendance': 'section-attendance',
         'nav-registration': 'section-registration',
-        'nav-users':      'section-users',
-        'nav-logs':       'section-logs',
+        'nav-users': 'section-users',
+        'nav-logs': 'section-logs',
     };
 
     function switchSection(targetNavId) {
@@ -157,18 +157,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (targetNavId !== 'nav-attendance') stopAttendanceScan();
 
         Object.entries(sections).forEach(([navId, sectionId]) => {
-            const link    = document.getElementById(navId);
+            const link = document.getElementById(navId);
             const section = document.getElementById(sectionId);
-            const active  = navId === targetNavId;
+            const active = navId === targetNavId;
             link.classList.toggle('active', active);
             section.style.display = active ? 'block' : 'none';
         });
 
         // Load data for the new section
-        if (targetNavId === 'nav-dashboard')    loadDashboardData();
-        if (targetNavId === 'nav-users')        loadUsersData();
-        if (targetNavId === 'nav-logs')         loadLogsData(document.getElementById('logDateFilter').value);
-        if (targetNavId === 'nav-attendance')   prepareAttendanceSection();
+        if (targetNavId === 'nav-dashboard') loadDashboardData();
+        if (targetNavId === 'nav-users') loadUsersData();
+        if (targetNavId === 'nav-logs') loadLogsData(document.getElementById('logDateFilter').value);
+        if (targetNavId === 'nav-attendance') prepareAttendanceSection();
     }
 
     Object.keys(sections).forEach(navId => {
@@ -196,10 +196,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (health && health.status === 'ok') {
             const modelReady = health.model_ready;
             apiStatusEl.textContent = modelReady ? 'API Connected' : 'API Connected · Model Loading';
-            apiStatusEl.className   = modelReady ? 'badge badge-success' : 'badge badge-warning';
+            apiStatusEl.className = modelReady ? 'badge badge-success' : 'badge badge-warning';
         } else {
             apiStatusEl.textContent = 'API Offline';
-            apiStatusEl.className   = 'badge badge-danger';
+            apiStatusEl.className = 'badge badge-danger';
         }
     }
 
@@ -223,9 +223,9 @@ document.addEventListener('DOMContentLoaded', () => {
         ]);
 
         if (stats) {
-            document.getElementById('stat-total-users').textContent   = stats.total_users;
+            document.getElementById('stat-total-users').textContent = stats.total_users;
             document.getElementById('stat-present-today').textContent = stats.present_users;
-            document.getElementById('stat-percent').textContent       = `${stats.attendance_percent}%`;
+            document.getElementById('stat-percent').textContent = `${stats.attendance_percent}%`;
         }
 
         const tbody = document.getElementById('todayAttendanceTableBody');
@@ -265,8 +265,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         tbody.innerHTML = users.map(u => {
-            const ts  = u.created_at.replace(' ', 'T');
-            const dt  = new Date(ts);
+            const ts = u.created_at.replace(' ', 'T');
+            const dt = new Date(ts);
             const fmt = isNaN(dt.getTime()) ? u.created_at : dt.toLocaleString('en-US', {
                 year: 'numeric', month: 'short', day: 'numeric',
                 hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
@@ -323,15 +323,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Attendance Scan
     // ──────────────────────────────────────────────────────────────────────────
 
-    const attendanceVideo  = document.getElementById('attendanceVideo');
+    const attendanceVideo = document.getElementById('attendanceVideo');
     const attendanceCanvas = document.getElementById('attendanceCanvas');
-    const startScanBtn     = document.getElementById('startScanBtn');
-    const stopScanBtn      = document.getElementById('stopScanBtn');
-    const scanWrapper      = document.getElementById('scanWrapper');
+    const startScanBtn = document.getElementById('startScanBtn');
+    const stopScanBtn = document.getElementById('stopScanBtn');
+    const scanWrapper = document.getElementById('scanWrapper');
 
-    let attendanceStream   = null;
+    let attendanceStream = null;
     let attendanceInterval = null;
-    let scanningActive     = false;
+    let scanningActive = false;
 
     function prepareAttendanceSection() {
         hideScanResult();
@@ -354,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         scanWrapper.style.display = 'inline-block';
         startScanBtn.style.display = 'none';
-        stopScanBtn.style.display  = 'inline-flex';
+        stopScanBtn.style.display = 'inline-flex';
         scanStatusBadge.style.display = 'inline-flex';
         scanningActive = true;
 
@@ -372,7 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!attendanceVideo.videoWidth || !attendanceVideo.videoHeight || !scanningActive) return;
 
         const ctx = attendanceCanvas.getContext('2d');
-        attendanceCanvas.width  = attendanceVideo.videoWidth;
+        attendanceCanvas.width = attendanceVideo.videoWidth;
         attendanceCanvas.height = attendanceVideo.videoHeight;
         ctx.drawImage(attendanceVideo, 0, 0);
 
@@ -432,9 +432,9 @@ document.addEventListener('DOMContentLoaded', () => {
             attendanceVideo.srcObject = null;
         }
 
-        scanWrapper.style.display  = 'none';
+        scanWrapper.style.display = 'none';
         startScanBtn.style.display = 'inline-flex';
-        stopScanBtn.style.display  = 'none';
+        stopScanBtn.style.display = 'none';
         scanStatusBadge.style.display = 'none';
         document.getElementById('scanButtonsWrapper').style.display = 'none';
     }
@@ -450,20 +450,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Registration
     // ──────────────────────────────────────────────────────────────────────────
 
-    const video          = document.getElementById('video');
-    const canvas         = document.getElementById('canvas');
-    const videoWrapper   = document.getElementById('videoWrapper');
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const videoWrapper = document.getElementById('videoWrapper');
     const startCameraBtn = document.getElementById('startCameraBtn');
-    const captureBtn     = document.getElementById('captureBtn');
+    const captureBtn = document.getElementById('captureBtn');
     const captureProgress = document.getElementById('captureProgress');
-    const captureDotsEl  = document.getElementById('captureDots');
-    const captureStatus  = document.getElementById('captureStatus');
-    const registerForm   = document.getElementById('registrationForm');
+    const captureDotsEl = document.getElementById('captureDots');
+    const captureStatus = document.getElementById('captureStatus');
+    const registerForm = document.getElementById('registrationForm');
 
-    const MAX_CAPTURES   = 10;
-    let capturedImages   = [];
-    let regStream        = null;
-    let captureInterval  = null;
+    const MAX_CAPTURES = 10;
+    let capturedImages = [];
+    let regStream = null;
+    let captureInterval = null;
 
     function renderCaptureDots(filled) {
         captureDotsEl.innerHTML = Array.from({ length: MAX_CAPTURES }, (_, i) =>
@@ -521,7 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function captureFrame() {
         if (!video.videoWidth || !video.videoHeight) return;
         const ctx = canvas.getContext('2d');
-        canvas.width  = video.videoWidth;
+        canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0);
         capturedImages.push(canvas.toDataURL('image/jpeg'));
@@ -561,8 +561,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 capturedImages = [];
                 renderCaptureDots(0);
                 captureProgress.style.display = 'none';
-                videoWrapper.style.display    = 'none';
-                captureBtn.style.display      = 'none';
+                videoWrapper.style.display = 'none';
+                captureBtn.style.display = 'none';
 
                 if (regStream) {
                     regStream.getTracks().forEach(t => t.stop());

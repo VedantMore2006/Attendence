@@ -1,7 +1,7 @@
 # Core ML/Vision Stack
 numpy>=1.24.0,<2.0.0               # Numerical computing
 opencv-python>=4.8.0,<4.10.0       # Computer vision (cross-platform)
-mediapipe>=0.10.14,<0.11.0         # MediaPipe for face detection
+mediapipe==0.10.14                 # MediaPipe for face detection
 insightface>=0.7.3,<0.8.0          # ArcFace embeddings
 onnxruntime>=1.17.0,<1.18.0        # ONNX model runtime
 
