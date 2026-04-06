@@ -21,13 +21,31 @@
     </nav>
 
     <main class="container">
+        <div class="page-header">
+            <h2>Register New User</h2>
+            <p>Add a face to the recognition database — capture 2–5 angles for best accuracy</p>
+        </div>
+
         <div class="card">
-            <h2>User Registration</h2>
-            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Capture 2-5 images of your face from different angles for better accuracy</p>
-            
+            <!-- Decorative step indicator -->
+            <div class="step-indicator">
+                <div class="step active">
+                    <div class="step-num">1</div>
+                    <span class="step-label">Enter Name</span>
+                </div>
+                <div class="step active">
+                    <div class="step-num">2</div>
+                    <span class="step-label">Capture Face</span>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <span class="step-label">Register</span>
+                </div>
+            </div>
+
             <div class="form-group">
                 <label for="username">Full Name</label>
-                <input type="text" id="username" placeholder="Enter your full name..." required autocomplete="off">
+                <input type="text" id="username" placeholder="Enter full name…" required autocomplete="off">
             </div>
 
             <div class="video-wrapper small">
@@ -36,7 +54,7 @@
             </div>
 
             <div class="thumbnail-grid" id="thumbnails"></div>
-            <div class="capture-count" id="capture-count">0/5</div>
+            <div class="capture-count" id="capture-count">0/5 captured</div>
 
             <div class="registration-controls">
                 <button id="capture-btn" class="btn btn-secondary">Capture Image (0/5)</button>
@@ -53,7 +71,6 @@
         window.addEventListener('load', () => {
             App.initRegisterPage();
         });
-        
         window.addEventListener('beforeunload', () => {
             App.stopWebcam();
         });

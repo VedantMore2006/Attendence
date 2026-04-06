@@ -31,3 +31,18 @@
 2026-04-06 23:03:00 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant  score=0.8005  threshold=0.55
 2026-04-06 23:03:00 | INFO     | api.routes | SCAN result=marked  user=Vedant  id=1  time=23:03:00  confidence=0.8005
 2026-04-06 23:03:20 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-06 23:14:19 | INFO     | api.server | ============================================================
+2026-04-06 23:14:19 | INFO     | api.server | Smart Attendance API — session start
+2026-04-06 23:14:19 | INFO     | api.server | ============================================================
+2026-04-06 23:14:19 | INFO     | api.server | Initialising database schema...
+2026-04-06 23:14:19 | INFO     | api.server | Database ready
+2026-04-06 23:14:19 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-06 23:14:19 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-06 23:14:19 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-06 23:14:19 | DEBUG    | matplotlib | interactive is False
+2026-04-06 23:14:19 | DEBUG    | matplotlib | platform is linux
+2026-04-06 23:14:19 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-06 23:14:19 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-06 23:14:21 | INFO     | api.server | FaceDetector ready
+2026-04-06 23:14:21 | INFO     | api.server | FaceAligner ready
+2026-04-06 23:14:25 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available

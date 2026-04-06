@@ -392,12 +392,12 @@ const App = {
                 if (submitBtn) {
                     submitBtn.disabled = this.capturedImages.length < 2;
                 }
-                if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5`;
+                if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5 captured`;
                 this.showToast('Image removed', 'info');
             });
             container.appendChild(thumb);
         });
-        if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5`;
+        if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5 captured`;
     },
 
     // --- Data Loading ---

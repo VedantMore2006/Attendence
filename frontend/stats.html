@@ -21,20 +21,26 @@
     </nav>
 
     <main class="container">
-        <h2>Today's Overview</h2>
-        <p style="color: var(--text-secondary); margin-bottom: 1rem;" id="stat-date">-</p>
+        <div class="page-header">
+            <h2>Today's Overview</h2>
+            <p id="stat-date">Loading…</p>
+        </div>
+
         <div class="stats-grid">
-            <div class="card stat-card">
-                <h3>Total Registered Users</h3>
-                <p id="stat-total">-</p>
+            <div class="card stat-card" data-bg="∞">
+                <span class="stat-icon">👥</span>
+                <h3>Total Registered</h3>
+                <p id="stat-total">—</p>
             </div>
-            <div class="card stat-card">
+            <div class="card stat-card" data-bg="✓">
+                <span class="stat-icon">✅</span>
                 <h3>Present Today</h3>
-                <p id="stat-present">-</p>
+                <p id="stat-present">—</p>
             </div>
-            <div class="card stat-card">
+            <div class="card stat-card" data-bg="%">
+                <span class="stat-icon">📊</span>
                 <h3>Attendance Rate</h3>
-                <p id="stat-percent">-</p>
+                <p id="stat-percent">—</p>
             </div>
         </div>
     </main>
@@ -44,7 +50,6 @@
     <script>
         window.addEventListener('load', () => {
             App.loadStats();
-            // Refresh stats every 30 seconds
             setInterval(() => App.loadStats(), 30000);
         });
     </script>

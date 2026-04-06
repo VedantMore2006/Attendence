@@ -21,9 +21,13 @@
     </nav>
 
     <main class="container">
-        <div class="card">
+        <div class="page-header">
             <h2>Attendance Log</h2>
-            <div class="form-group" style="max-width: 300px;">
+            <p>Full check-in history — filtered by date</p>
+        </div>
+
+        <div class="card">
+            <div class="form-group" style="max-width: 280px; margin-bottom: 0.5rem;">
                 <label for="date-filter">Filter by Date</label>
                 <input type="date" id="date-filter">
             </div>
@@ -38,7 +42,7 @@
                         </tr>
                     </thead>
                     <tbody id="attendance-body">
-                        <tr><td colspan="4">Loading...</td></tr>
+                        <tr><td colspan="4">Loading…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -50,18 +54,18 @@
     <script>
         window.addEventListener('load', () => {
             App.loadAttendance();
-            
+
             const dateFilter = document.getElementById('date-filter');
             if (dateFilter) {
                 const today = new Date().toISOString().split('T')[0];
                 dateFilter.value = today;
-                
+
                 dateFilter.addEventListener('change', async () => {
                     const tbody = document.getElementById('attendance-body');
-                    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading...</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading…</td></tr>';
                     const data = await API.getAttendance(dateFilter.value);
                     if (data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="4">No records for this date</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No records for this date</td></tr>';
                         return;
                     }
                     tbody.innerHTML = data.map(row => `
