@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scan Face | Smart Attendance</title>
+    <title>Scan Face | SAS - Smart Attendance System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="index.html" class="logo">SmartScan AI</a>
+            <a href="index.html" class="logo">SAS<span>.</span></a>
             <ul class="nav-links">
                 <li><a href="scan.html" class="active">Scan Face</a></li>
                 <li><a href="register.html">Register</a></li>
@@ -19,18 +20,69 @@
         </div>
     </nav>
 
-    <main class="container">
-        <div class="card scan-container">
-            <h2>Live Attendance Scan</h2>
-            <div class="video-wrapper">
-                <video id="webcam" autoplay playsinline></video>
-                <canvas id="capture-canvas" style="display:none;"></canvas>
-                <div id="scan-overlay" class="overlay">Initializing...</div>
+    <main class="container scan-page-container">
+        <div class="scan-layout">
+
+            <!-- ── Left: Camera ── -->
+            <div class="camera-col">
+                <div class="camera-frame" id="camera-frame">
+                    <video id="webcam" autoplay playsinline></video>
+
+                    <!-- Animated corner brackets -->
+                    <div class="scan-corners">
+                        <span class="sc tl"></span>
+                        <span class="sc tr"></span>
+                        <span class="sc bl"></span>
+                        <span class="sc br"></span>
+                    </div>
+
+                    <!-- Face target oval -->
+                    <div class="face-target-ring"></div>
+
+                    <!-- Horizontal scan line -->
+                    <div class="scan-sweep"></div>
+
+                    <!-- Live badge -->
+                    <div class="live-badge">
+                        <span class="live-pulse"></span>
+                        LIVE
+                    </div>
+                </div>
+                <p class="camera-caption">Keep your face inside the oval</p>
             </div>
-            
-            <div id="status-box" class="status-box">
-                <p id="status-message">Waiting for camera...</p>
-                <small id="status-detail">Align your face in the center of the frame.</small>
+
+            <!-- ── Right: Status ── -->
+            <div class="info-col">
+
+                <!-- Status result card -->
+                <div class="scan-result-card state-init" id="scan-result-card">
+                    <div class="result-icon" id="result-icon">⟳</div>
+                    <h2 id="status-message">Initializing Camera</h2>
+                    <p id="status-detail">Please wait while we access your camera</p>
+                </div>
+
+                <!-- Recognized user (populated by JS) -->
+                <div id="recognized-user"></div>
+
+                <!-- Static info -->
+                <div class="scan-info-card">
+                    <h4>How it works</h4>
+                    <div class="info-steps">
+                        <div class="info-step">
+                            <span class="step-num">1</span>
+                            <span>Face the camera and stay still</span>
+                        </div>
+                        <div class="info-step">
+                            <span class="step-num">2</span>
+                            <span>Face is detected and matched automatically</span>
+                        </div>
+                        <div class="info-step">
+                            <span class="step-num">3</span>
+                            <span>Attendance is recorded instantly</span>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </main>
@@ -38,9 +90,10 @@
     <script src="api.js"></script>
     <script src="app.js"></script>
     <script>
-        // Specific logic for Scan page
-        window.addEventListener('load', () => {
-            App.initScanPage();
+        window.addEventListener('load', () => App.initScanPage());
+        window.addEventListener('beforeunload', () => {
+            if (App.scanInterval) clearInterval(App.scanInterval);
+            App.stopWebcam();
         });
     </script>
 </body>

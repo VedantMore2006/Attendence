@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register | Smart Attendance</title>
+    <title>Register | SAS - Smart Attendance System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="index.html" class="logo">SmartScan AI</a>
+            <a href="index.html" class="logo">SAS<span>.</span></a>
             <ul class="nav-links">
                 <li><a href="scan.html">Scan Face</a></li>
                 <li><a href="register.html" class="active">Register</a></li>
@@ -22,17 +23,23 @@
     <main class="container">
         <div class="card">
             <h2>User Registration</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">Capture 2-5 images of your face from different angles for better accuracy</p>
+            
             <div class="form-group">
                 <label for="username">Full Name</label>
-                <input type="text" id="username" placeholder="Enter name..." required>
+                <input type="text" id="username" placeholder="Enter your full name..." required autocomplete="off">
             </div>
 
             <div class="video-wrapper small">
                 <video id="webcam" autoplay playsinline></video>
+                <div class="face-guide"></div>
             </div>
 
+            <div class="thumbnail-grid" id="thumbnails"></div>
+            <div class="capture-count" id="capture-count">0/5</div>
+
             <div class="registration-controls">
-                <button id="capture-btn" class="btn btn-secondary">Capture Image (0/3)</button>
+                <button id="capture-btn" class="btn btn-secondary">Capture Image (0/5)</button>
                 <button id="submit-reg" class="btn btn-primary" disabled>Register User</button>
             </div>
 
@@ -45,6 +52,10 @@
     <script>
         window.addEventListener('load', () => {
             App.initRegisterPage();
+        });
+        
+        window.addEventListener('beforeunload', () => {
+            App.stopWebcam();
         });
     </script>
 </body>
