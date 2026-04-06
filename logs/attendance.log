@@ -1,30 +1,51 @@
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 4: aligning face box=[285, 269, 457, 441]
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 5: extracting embedding
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 20 total embeddings
-2026-04-06 00:53:29 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.3266  threshold=0.55
-2026-04-06 00:53:29 | INFO     | api.routes | SCAN result=no_match  best_score=0.3266  threshold=0.55
-2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
-2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
-2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 4: aligning face box=[259, 269, 431, 441]
-2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
-2026-04-06 00:53:33 | DEBUG    | api.routes | SCAN step 5: extracting embedding
-2026-04-06 00:53:34 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
-2026-04-06 00:53:34 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 20 total embeddings
-2026-04-06 00:53:34 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.3809  threshold=0.55
-2026-04-06 00:53:34 | INFO     | api.routes | SCAN result=no_match  best_score=0.3809  threshold=0.55
-2026-04-06 00:54:03 | INFO     | api.routes | DELETE user: id=2
-2026-04-06 00:54:08 | INFO     | api.routes | DELETE user: id=1
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 4: aligning face box=[247, 248, 445, 446]
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 5: extracting embedding
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 6: loaded 1 users, 10 total embeddings
-2026-04-06 00:54:43 | DEBUG    | api.routes | SCAN step 6: best_match=3  name=v  score=0.7500  threshold=0.55
-2026-04-06 00:54:43 | INFO     | api.routes | SCAN result=marked  user=v  id=3  time=00:54:43  confidence=0.7500
-2026-04-06 01:13:49 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-06 19:10:49 | INFO     | api.server | ============================================================
+2026-04-06 19:10:49 | INFO     | api.server | Smart Attendance API — session start
+2026-04-06 19:10:49 | INFO     | api.server | ============================================================
+2026-04-06 19:10:49 | INFO     | api.server | Initialising database schema...
+2026-04-06 19:10:49 | INFO     | api.server | Database ready
+2026-04-06 19:10:49 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-06 19:10:49 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-06 19:10:49 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-06 19:10:49 | DEBUG    | matplotlib | interactive is False
+2026-04-06 19:10:49 | DEBUG    | matplotlib | platform is linux
+2026-04-06 19:10:50 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-06 19:10:50 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-06 19:10:51 | INFO     | api.server | FaceDetector ready
+2026-04-06 19:10:51 | INFO     | api.server | FaceAligner ready
+2026-04-06 19:10:53 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-06 19:11:09 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 19:11:09 | DEBUG    | api.routes | SCAN step 3: detected 0 face(s)
+2026-04-06 19:11:09 | INFO     | api.routes | SCAN result=no_face  reason=no_boxes
+2026-04-06 19:11:15 | INFO     | api.routes | DELETE user: id=2
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 0: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 1: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 2: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 3: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 4: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 5: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 6: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 7: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 8: no face detected, skipping
+2026-04-06 19:11:30 | DEBUG    | api.routes | Image 9: no face detected, skipping
+2026-04-06 19:11:38 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 19:11:38 | DEBUG    | api.routes | SCAN step 3: detected 0 face(s)
+2026-04-06 19:11:38 | INFO     | api.routes | SCAN result=no_face  reason=no_boxes
+2026-04-06 19:11:51 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 19:11:51 | DEBUG    | api.routes | SCAN step 3: detected 0 face(s)
+2026-04-06 19:11:51 | INFO     | api.routes | SCAN result=no_face  reason=no_boxes
+2026-04-06 19:14:18 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-06 19:14:56 | INFO     | api.server | ============================================================
+2026-04-06 19:14:56 | INFO     | api.server | Smart Attendance API — session start
+2026-04-06 19:14:56 | INFO     | api.server | ============================================================
+2026-04-06 19:14:56 | INFO     | api.server | Initialising database schema...
+2026-04-06 19:14:56 | INFO     | api.server | Database ready
+2026-04-06 19:14:56 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-06 19:14:56 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-06 19:14:56 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-06 19:14:56 | DEBUG    | matplotlib | interactive is False
+2026-04-06 19:14:56 | DEBUG    | matplotlib | platform is linux
+2026-04-06 19:14:56 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-06 19:14:56 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-06 19:14:58 | INFO     | api.server | FaceDetector ready
+2026-04-06 19:14:58 | INFO     | api.server | FaceAligner ready
+2026-04-06 19:15:00 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available

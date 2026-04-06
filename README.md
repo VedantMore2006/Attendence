@@ -393,10 +393,47 @@ When running `main.py` or camera-based features on Windows:
 
 ### Camera Issues
 
+**Arch Linux: "Permission denied" or camera not accessible**
+
+⚠️ **Most common Arch Linux issue:** Browser or application cannot access `/dev/video*`
+
+**Solution: Add user to `video` group**
+```bash
+# 1. Add your user to the video group
+sudo usermod -aG video $USER
+
+# 2. Reboot or log out and back in
+reboot
+# OR: newgrp video (alternative, no reboot needed)
+
+# 3. Verify camera access
+ls /dev/video*  # Should show /dev/video0, /dev/video1, etc.
+
+# 4. Test camera access
+python3 -c "import cv2; cap = cv2.VideoCapture(0); print('Camera ready' if cap.isOpened() else 'Camera failed')"
+```
+
+**If still failing:**
+```bash
+# Check current groups
+groups
+
+# Check device permissions
+ls -la /dev/video*
+
+# Fix permissions (if needed)
+sudo chmod 666 /dev/video*
+```
+
+**Browser permission denied**
+- Firefox: Check Settings → Privacy & Security → Permissions → Camera
+- Chromium/Chrome: Check Settings → Privacy & Security → Site Settings → Camera
+- Grant permission when prompted
+
 **Linux: "Cannot retrieve V4L2 property" warning**
 ```
-This warning is harmless—OpenCV can't set some v4l2 properties but works fine.
-Ignore it and continue.
+This warning is harmless—just v4l2 unavailable properties.
+Ignore it and continue—camera will work fine.
 ```
 
 **Windows: "The specified procedure could not be found"**
@@ -413,7 +450,7 @@ Allow app access:
 
 **"Camera index not found" or camera opens but freezes**
 ```python
-# Try different camera indices in main.py or code:
+# Try different camera indices:
 for idx in [0, 1, 2, 3]:
     cap = cv2.VideoCapture(idx)
     if cap.isOpened():
@@ -460,6 +497,27 @@ rm attendance.db
 **"Attendance already marked for today"**
 - This is expected behavior—one attendance per user per day
 - To mark again, delete the user's attendance record from database or restart next day
+
+### Silent Operation & Reducing Notifications
+
+**If you want silent scanning (no toasts, no polling)**
+
+The frontend now supports a `silentMode` flag to suppress notifications during scanning:
+
+```javascript
+// In browser console (F12 → Console tab):
+silentMode = true;   // Disable toasts & alerts during scanning
+silentMode = false;  // Re-enable notifications
+```
+
+**What gets suppressed when `silentMode = true`:**
+- ✅ Info & success notifications (still show errors)
+- ✅ API health checks disabled (scan performance improves)
+- ✅ Only scan results display on-screen (no toast popups)
+
+**Manual Scanner Command** (for scripted/automated environments)
+- Create a silent user batch file that sets `silentMode` before scanning
+- Modify `frontend/js/dashboard.js` to default `silentMode = true` if desired
 
 ### Performance Issues
 
