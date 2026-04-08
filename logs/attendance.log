@@ -46,3 +46,180 @@
 2026-04-06 23:14:21 | INFO     | api.server | FaceDetector ready
 2026-04-06 23:14:21 | INFO     | api.server | FaceAligner ready
 2026-04-06 23:14:25 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 4: aligning face box=[230, 184, 407, 361]
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 6: loaded 1 users, 5 total embeddings
+2026-04-06 23:15:09 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant  score=0.8204  threshold=0.55
+2026-04-06 23:15:09 | INFO     | api.routes | SCAN result=already_marked  user=Vedant  id=1  checked_in_at=23:03:00
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 4: aligning face box=[240, 191, 417, 368]
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-06 23:15:42 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.5437  threshold=0.55
+2026-04-06 23:15:42 | INFO     | api.routes | SCAN result=no_match  best_score=0.5437  threshold=0.55
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 4: aligning face box=[231, 190, 411, 370]
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-06 23:15:47 | DEBUG    | api.routes | SCAN step 6: best_match=2  name=v2  score=0.8690  threshold=0.55
+2026-04-06 23:15:47 | INFO     | api.routes | SCAN result=marked  user=v2  id=2  time=23:15:47  confidence=0.8690
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 4: aligning face box=[239, 188, 419, 368]
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-06 23:15:50 | DEBUG    | api.routes | SCAN step 6: best_match=2  name=v2  score=0.8846  threshold=0.55
+2026-04-06 23:15:50 | INFO     | api.routes | SCAN result=already_marked  user=v2  id=2  checked_in_at=23:15:47
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 4: aligning face box=[246, 177, 422, 353]
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-06 23:15:56 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant  score=0.7400  threshold=0.55
+2026-04-06 23:15:56 | INFO     | api.routes | SCAN result=already_marked  user=Vedant  id=1  checked_in_at=23:03:00
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 4: aligning face box=[240, 181, 416, 357]
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-06 23:16:03 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant  score=0.7355  threshold=0.55
+2026-04-06 23:16:03 | INFO     | api.routes | SCAN result=already_marked  user=Vedant  id=1  checked_in_at=23:03:00
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 4: aligning face box=[239, 184, 417, 362]
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-06 23:16:06 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant  score=0.7600  threshold=0.55
+2026-04-06 23:16:06 | INFO     | api.routes | SCAN result=already_marked  user=Vedant  id=1  checked_in_at=23:03:00
+2026-04-06 23:16:27 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-07 00:54:23 | INFO     | api.server | ============================================================
+2026-04-07 00:54:23 | INFO     | api.server | Smart Attendance API — session start
+2026-04-07 00:54:23 | INFO     | api.server | ============================================================
+2026-04-07 00:54:23 | INFO     | api.server | Initialising database schema...
+2026-04-07 00:54:23 | INFO     | api.server | Database ready
+2026-04-07 00:54:23 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-07 00:54:23 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-07 00:54:23 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-07 00:54:23 | DEBUG    | matplotlib | interactive is False
+2026-04-07 00:54:23 | DEBUG    | matplotlib | platform is linux
+2026-04-07 00:54:23 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-07 00:54:23 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-07 00:54:26 | INFO     | api.server | FaceDetector ready
+2026-04-07 00:54:26 | INFO     | api.server | FaceAligner ready
+2026-04-07 00:54:30 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-07 00:55:14 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-07 00:55:14 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-07 00:55:14 | DEBUG    | api.routes | SCAN step 4: aligning face box=[221, 169, 429, 377]
+2026-04-07 00:55:14 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-07 00:55:14 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-07 00:55:15 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-07 00:55:15 | DEBUG    | api.routes | SCAN step 6: loaded 1 users, 5 total embeddings
+2026-04-07 00:55:15 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant Vasant More  score=0.8679  threshold=0.55
+2026-04-07 00:55:15 | INFO     | api.routes | SCAN result=marked  user=Vedant Vasant More  id=1  time=00:55:15  confidence=0.8679
+2026-04-07 00:55:22 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-07 00:55:23 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-07 00:55:23 | DEBUG    | api.routes | SCAN step 4: aligning face box=[235, 176, 422, 363]
+2026-04-07 00:55:23 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-07 00:55:23 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-07 00:55:23 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-07 00:55:23 | DEBUG    | api.routes | SCAN step 6: loaded 1 users, 5 total embeddings
+2026-04-07 00:55:23 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant Vasant More  score=0.8339  threshold=0.55
+2026-04-07 00:55:23 | INFO     | api.routes | SCAN result=already_marked  user=Vedant Vasant More  id=1  checked_in_at=00:55:15
+2026-04-07 01:01:17 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-08 16:53:56 | INFO     | api.server | ============================================================
+2026-04-08 16:53:56 | INFO     | api.server | Smart Attendance API — session start
+2026-04-08 16:53:56 | INFO     | api.server | ============================================================
+2026-04-08 16:53:56 | INFO     | api.server | Initialising database schema...
+2026-04-08 16:53:56 | INFO     | api.server | Database ready
+2026-04-08 16:53:56 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-08 16:53:56 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-08 16:53:56 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-08 16:53:56 | DEBUG    | matplotlib | interactive is False
+2026-04-08 16:53:56 | DEBUG    | matplotlib | platform is linux
+2026-04-08 16:53:56 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-08 16:53:56 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-08 16:53:57 | INFO     | api.server | FaceDetector ready
+2026-04-08 16:53:57 | INFO     | api.server | FaceAligner ready
+2026-04-08 16:54:00 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 4: aligning face box=[262, 252, 388, 378]
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-08 16:54:55 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.3413  threshold=0.55
+2026-04-08 16:54:55 | INFO     | api.routes | SCAN result=no_match  best_score=0.3413  threshold=0.55
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 4: aligning face box=[259, 252, 396, 389]
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-08 16:54:58 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.4302  threshold=0.55
+2026-04-08 16:54:58 | INFO     | api.routes | SCAN result=no_match  best_score=0.4302  threshold=0.55
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 4: aligning face box=[224, 208, 395, 379]
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-08 16:55:01 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.3271  threshold=0.55
+2026-04-08 16:55:01 | INFO     | api.routes | SCAN result=no_match  best_score=0.3271  threshold=0.55
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 4: aligning face box=[208, 217, 397, 406]
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-08 16:55:04 | DEBUG    | api.routes | SCAN step 6: best_match=None  name=None  score=0.2386  threshold=0.55
+2026-04-08 16:55:04 | INFO     | api.routes | SCAN result=no_match  best_score=0.2386  threshold=0.55
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 4: aligning face box=[206, 128, 431, 353]
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-08 16:55:09 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant Vasant More  score=0.7044  threshold=0.55
+2026-04-08 16:55:09 | INFO     | api.routes | SCAN result=marked  user=Vedant Vasant More  id=1  time=16:55:09  confidence=0.7044
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 4: aligning face box=[256, 222, 415, 381]
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 6: loaded 3 users, 15 total embeddings
+2026-04-08 16:55:49 | DEBUG    | api.routes | SCAN step 6: best_match=3  name=Ashutosh Rathod  score=0.8871  threshold=0.55
+2026-04-08 16:55:49 | INFO     | api.routes | SCAN result=marked  user=Ashutosh Rathod  id=3  time=16:55:49  confidence=0.8871
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 4: aligning face box=[227, 219, 403, 395]
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 6: loaded 3 users, 15 total embeddings
+2026-04-08 16:56:16 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant Vasant More  score=0.6895  threshold=0.55
+2026-04-08 16:56:16 | INFO     | api.routes | SCAN result=already_marked  user=Vedant Vasant More  id=1  checked_in_at=16:55:09
+2026-04-08 16:56:40 | INFO     | api.server | Smart Attendance API shutting down

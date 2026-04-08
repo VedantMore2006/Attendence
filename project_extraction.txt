@@ -142,6 +142,8 @@ FILE: api/routes.py
 
 import base64
 import logging
+import os
+import re
 import sqlite3
 from datetime import datetime
 from typing import Optional
@@ -780,6 +782,58 @@ def get_today_stats(conn=Depends(get_connection)):
     )
 
 
+@router.get("/logs/recent")
+def get_recent_scan_events():
+    """Return up to 10 recent SCAN result events parsed from the log file."""
+    log_path = "logs/attendance.log"
+    events: list[dict] = []
+
+    if not os.path.exists(log_path):
+        return events
+
+    line_pattern = re.compile(
+        r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| \w+\s+\| api\.routes \| SCAN result=(\w+)(?:\s{2,}(.*))?$"
+    )
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return events
+
+    for line in reversed(lines):
+        m = line_pattern.match(line.strip())
+        if not m:
+            continue
+
+        timestamp = m.group(1)
+        result = m.group(2)
+        rest = m.group(3) or ""
+
+        # Parse double-space-separated key=value pairs (handles names with spaces)
+        kv: dict[str, str] = {}
+        for part in re.split(r"\s{2,}", rest.strip()):
+            if "=" in part:
+                key, _, val = part.partition("=")
+                kv[key.strip()] = val.strip()
+
+        events.append(
+            {
+                "timestamp": timestamp,
+                "result": result,
+                "user": kv.get("user"),
+                "time": kv.get("checked_in_at") or kv.get("time"),
+                "confidence": float(kv["confidence"]) if "confidence" in kv else None,
+                "user_id": int(kv["id"]) if kv.get("id", "").isdigit() else None,
+            }
+        )
+
+        if len(events) >= 10:
+            break
+
+    return events
+
+
 ================================================================================
 FILE: api/server.py
 ================================================================================
@@ -1157,20 +1211,69 @@ const API = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, images })
         });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "Registration failed");
+        }
         return response.json();
     },
 
-    async getAttendance() {
-        const response = await fetch(`${API_BASE}/attendance`);
+    async getAttendance(date = null) {
+        const url = date ? `${API_BASE}/attendance?date=${date}` : `${API_BASE}/attendance`;
+        const response = await fetch(url);
         return response.json();
     },
 
     async getTodayStats() {
         const response = await fetch(`${API_BASE}/stats/today`);
         return response.json();
+    },
+
+    async getUsers() {
+        const response = await fetch(`${API_BASE}/users`);
+        return response.json();
+    },
+
+    async deleteUser(userId) {
+        const response = await fetch(`${API_BASE}/users/${userId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            throw new Error('Failed to delete user');
+        }
+        return true;
+    },
+
+    async getRecentScanEvents() {
+        const response = await fetch(`${API_BASE}/logs/recent`);
+        return response.json();
     }
 };
 
+// Toast notification helper
+function showToast(message, type = 'info') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <span>${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
+        <span>${message}</span>
+    `;
+    
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
 
 ================================================================================
 FILE: frontend/app.js
@@ -1179,133 +1282,459 @@ FILE: frontend/app.js
 const App = {
     stream: null,
     capturedImages: [],
+    scanInterval: null,
+    lastRecognizedUserId: null,
+    lastScanStatus: null,
+    registeredUsers: [],
 
+    // Toast helper
+    showToast(message, type = 'info') {
+        showToast(message, type);
+    },
 
     // --- Media Helpers ---
-    async startWebcam(videoId) {
+    async startWebcam(videoId, mirror = true) {
         try {
-            this.stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            if (this.stream) {
+                this.stopWebcam();
+            }
+            this.stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480, facingMode: 'user' } 
+            });
             const video = document.getElementById(videoId);
             video.srcObject = this.stream;
+            if (mirror) {
+                video.style.transform = 'scaleX(-1)';
+            }
+            return true;
         } catch (err) {
             console.error("Webcam Error:", err);
-            alert("Could not access webcam. Please ensure permissions are granted.");
+            this.showToast("Could not access webcam. Please check permissions.", "error");
+            return false;
         }
     },
 
-    captureFrame(videoId) {
+    stopWebcam() {
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+            this.stream = null;
+        }
+    },
+
+    captureFrame(videoId, mirror = true) {
         const video = document.getElementById(videoId);
+        if (!video || !video.videoWidth || !video.videoHeight) return null;
         const canvas = document.createElement('canvas');
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         const ctx = canvas.getContext('2d');
+        if (mirror) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
         ctx.drawImage(video, 0, 0);
         return canvas.toDataURL('image/jpeg', 0.8);
     },
 
     // --- Page: Scan ---
     async initScanPage() {
-        await this.startWebcam('webcam');
-        const overlay = document.getElementById('scan-overlay');
-        const statusBox = document.getElementById('status-box');
-        const statusMsg = document.getElementById('status-message');
-        const statusDetail = document.getElementById('status-detail');
+        const statusCard    = document.getElementById('scan-result-card');
+        const statusMsg     = document.getElementById('status-message');
+        const statusDetail  = document.getElementById('status-detail');
+        const resultIcon    = document.getElementById('result-icon');
+        const cameraFrame   = document.getElementById('camera-frame');
+        const recognizedDiv = document.getElementById('recognized-user');
+        const scanBtn       = document.getElementById('scan-btn');
+        const logEntries    = document.getElementById('log-entries');
+        const logRefreshBtn = document.getElementById('log-refresh-btn');
 
-        overlay.innerText = "Scanning Active";
+        const set = (el, prop, val) => { if (el) el[prop] = val; };
+        const cls = (el, c)         => { if (el) el.className = c; };
 
-        // Poll API every 2 seconds 
-        setInterval(async () => {
-            try {
-                const b64 = this.captureFrame('webcam');
-                const result = await API.scanAttendance(b64);
-                this.updateScanUI(result, statusBox, statusMsg, statusDetail);
-            } catch (err) {
-                statusMsg.innerText = "Connection Error";
-                statusDetail.innerText = err.message;
-            }
-        }, 2000);
+        // Start camera
+        const webcamStarted = await this.startWebcam('webcam', true);
+        if (!webcamStarted) {
+            cls(statusCard, 'scan-result-card state-error');
+            set(resultIcon,   'innerText', '✗');
+            set(statusMsg,    'innerText', 'Camera Error');
+            set(statusDetail, 'innerText', 'Could not access camera — check permissions');
+            return;
+        }
+
+        // Wait for video stream to have actual pixel data
+        const video = document.getElementById('webcam');
+        if (video && video.readyState < 2) {
+            await new Promise(resolve => {
+                video.addEventListener('loadeddata', resolve, { once: true });
+                setTimeout(resolve, 4000);
+            });
+        }
+
+        // Camera ready
+        if (cameraFrame) cameraFrame.classList.add('scanning');
+        cls(statusCard, 'scan-result-card state-ready');
+        set(resultIcon,   'innerText', '◎');
+        set(statusMsg,    'innerText', 'Ready to Scan');
+        set(statusDetail, 'innerText', 'Press the button to check attendance');
+
+        if (scanBtn) {
+            scanBtn.disabled   = false;
+            scanBtn.textContent = 'Scan Face';
+            scanBtn.addEventListener('click', () => {
+                this.performScan(scanBtn, statusCard, statusMsg, statusDetail, resultIcon, cameraFrame, recognizedDiv, logEntries);
+            });
+        }
+
+        if (logRefreshBtn) {
+            logRefreshBtn.addEventListener('click', () => this.loadLogPanel(logEntries));
+        }
+
+        // Load initial recent activity
+        this.loadLogPanel(logEntries);
     },
 
-    updateScanUI(res, box, msg, detail) {
-        box.className = "status-box";
-        msg.innerText = res.message || res.status;
-        
-        switch(res.status) {
-            case 'marked':
-                box.classList.add('status-success');
-                detail.innerText = `Welcome, ${res.name}! Recorded at ${res.time}`;
-                break;
-            case 'already_marked':
-                box.classList.add('status-warning');
-                detail.innerText = `You checked in at ${res.time}`;
-                break;
-            case 'no_match':
-                box.classList.add('status-error');
-                detail.innerText = "Face not recognized. Please register.";
-                break;
-            default:
-                box.classList.add('status-warning');
-                detail.innerText = "Keep your face visible and still.";
+    async performScan(btn, card, msg, detail, icon, cameraFrame, recognizedDiv, logEntries) {
+        const set = (el, prop, val) => { if (el) el[prop] = val; };
+        const cls = (el, c)         => { if (el) el.className = c; };
+
+        const b64 = this.captureFrame('webcam', true);
+        if (!b64) {
+            cls(card, 'scan-result-card state-error');
+            set(icon,   'innerText', '⚠');
+            set(msg,    'innerText', 'Capture Failed');
+            set(detail, 'innerText', 'Camera not ready — try again');
+            return;
         }
+
+        // Scanning state
+        if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+        cls(card, 'scan-result-card state-scanning');
+        set(icon,   'innerText', '⟳');
+        set(msg,    'innerText', 'Processing…');
+        set(detail, 'innerText', 'Analyzing your face');
+        if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+
+        try {
+            // Send image to backend
+            await API.scanAttendance(b64);
+
+            // Give the server a moment to flush the log, then fetch it
+            await new Promise(r => setTimeout(r, 400));
+            const events = await API.getRecentScanEvents();
+
+            // Use the latest log event as the source of truth for the UI
+            if (events && events.length > 0) {
+                const latest = events[0];
+                this.updateScanUIFromLog(latest, card, msg, detail, icon, cameraFrame, recognizedDiv);
+            } else {
+                cls(card, 'scan-result-card state-error');
+                set(icon,   'innerText', '?');
+                set(msg,    'innerText', 'No Result');
+                set(detail, 'innerText', 'Backend returned no log entry');
+            }
+
+            // Refresh log panel
+            this.renderLogPanel(logEntries, events);
+
+        } catch (err) {
+            cls(card, 'scan-result-card state-error');
+            set(icon,   'innerText', '⚠');
+            set(msg,    'innerText', 'Connection Error');
+            set(detail, 'innerText', err.message || 'Server unreachable');
+        } finally {
+            // Re-enable scan button after short delay
+            setTimeout(() => {
+                if (btn) { btn.disabled = false; btn.textContent = 'Scan Again'; }
+            }, 1800);
+        }
+    },
+
+    updateScanUIFromLog(event, card, msg, detail, icon, cameraFrame, recognizedDiv) {
+        const set = (el, prop, val) => { if (el) el[prop] = val; };
+        const cls = (el, c)         => { if (el) el.className = c; };
+
+        switch (event.result) {
+            case 'marked':
+                cls(card, 'scan-result-card state-success');
+                set(icon,   'innerText', '✓');
+                set(msg,    'innerText', 'Attendance Marked!');
+                set(detail, 'innerText', `Checked in at ${event.time}`);
+                if (cameraFrame) cameraFrame.className = 'camera-frame success';
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'marked');
+                this.showToast(`Welcome, ${event.user}! Marked at ${event.time}`, 'success');
+                break;
+
+            case 'already_marked':
+                cls(card, 'scan-result-card state-warning');
+                set(icon,   'innerText', '✓');
+                set(msg,    'innerText', 'Already Checked In');
+                set(detail, 'innerText', `First checked in at ${event.time}`);
+                if (cameraFrame) cameraFrame.className = 'camera-frame warning';
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'already_marked');
+                this.showToast(`${event.user} — already marked at ${event.time}`, 'warning');
+                break;
+
+            case 'no_match':
+                cls(card, 'scan-result-card state-error');
+                set(icon,   'innerText', '?');
+                set(msg,    'innerText', 'Face Not Recognized');
+                set(detail, 'innerText', 'Not registered — please register first');
+                if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+                if (recognizedDiv) recognizedDiv.innerHTML = '';
+                break;
+
+            case 'no_face':
+            default:
+                cls(card, 'scan-result-card state-scanning');
+                set(icon,   'innerText', '◎');
+                set(msg,    'innerText', 'No Face Detected');
+                set(detail, 'innerText', 'Make sure your face is in the oval and try again');
+                if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+                if (recognizedDiv) recognizedDiv.innerHTML = '';
+                break;
+        }
+    },
+
+    async loadLogPanel(container) {
+        if (!container) return;
+        try {
+            const events = await API.getRecentScanEvents();
+            this.renderLogPanel(container, events);
+        } catch (_) {
+            if (container) container.innerHTML = '<p class="log-empty">Could not load activity</p>';
+        }
+    },
+
+    renderLogPanel(container, events) {
+        if (!container) return;
+        if (!events || events.length === 0) {
+            container.innerHTML = '<p class="log-empty">No recent activity</p>';
+            return;
+        }
+        container.innerHTML = events.map(e => {
+            const iconMap  = { marked: '✓', already_marked: '✓', no_match: '?', no_face: '○' };
+            const clsMap   = { marked: 'log-success', already_marked: 'log-warning', no_match: 'log-error', no_face: 'log-muted' };
+            const labelMap = {
+                marked:         e.user ? `${e.user} — checked in at ${e.time}` : 'Marked',
+                already_marked: e.user ? `${e.user} — already in at ${e.time}` : 'Already marked',
+                no_match:       'Unknown face scanned',
+                no_face:        'No face detected',
+            };
+            const ic  = iconMap[e.result]  || '○';
+            const cl  = clsMap[e.result]   || 'log-muted';
+            const lbl = labelMap[e.result] || e.result;
+            const ts  = e.timestamp ? e.timestamp.split(' ')[1] : '';
+            return `<div class="log-entry ${cl}">
+                <span class="log-icon">${ic}</span>
+                <div class="log-body">
+                    <span class="log-label">${lbl}</span>
+                    <span class="log-ts">${ts}</span>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    showRecognizedUser(name, confidence, time, container, status) {
+        if (!container || !name) return;
+        const initial   = name.charAt(0).toUpperCase();
+        const confPct   = confidence != null ? (confidence * 100).toFixed(1) : null;
+        const timeLabel = status === 'marked' ? `Just checked in at ${time}` : `Checked in at ${time}`;
+        container.innerHTML = `
+            <div class="user-recognized">
+                <div class="user-avatar-large">${initial}</div>
+                <div class="user-recognized-info">
+                    <h3>${name}</h3>
+                    <p>${timeLabel}</p>
+                    ${confPct ? `<span class="confidence-badge">Match ${confPct}%</span>` : ''}
+                </div>
+            </div>
+        `;
+    },
+
+    stopScanning() {
+        if (this.scanInterval) {
+            clearInterval(this.scanInterval);
+            this.scanInterval = null;
+        }
+        this.stopWebcam();
+        const cameraFrame = document.getElementById('camera-frame');
+        if (cameraFrame) cameraFrame.classList.remove('scanning');
     },
 
     // --- Page: Register ---
     async initRegisterPage() {
-        await this.startWebcam('webcam');
+        const webcamStarted = await this.startWebcam('webcam', true);
+        if (!webcamStarted) return;
+        
+        this.capturedImages = [];
         const captureBtn = document.getElementById('capture-btn');
         const submitBtn = document.getElementById('submit-reg');
-        const status = document.getElementById('reg-status');
-
-        captureBtn.addEventListener('click', () => {
-            if (this.capturedImages.length < 3) {
-                const b64 = this.captureFrame('webcam');
-                this.capturedImages.push(b64);
-                captureBtn.innerText = `Capture Image (${this.capturedImages.length}/3)`;
-                if (this.capturedImages.length === 3) submitBtn.disabled = false;
-            }
-        });
-
-        submitBtn.addEventListener('click', async () => {
-            const name = document.getElementById('username').value;
-            if (!name) return alert("Please enter a name");
-            
-            submitBtn.disabled = true;
-            status.innerText = "Processing registration...";
-            status.classList.remove('hidden');
-
-            const res = await API.registerUser(name, this.capturedImages);
-            status.innerHTML = `
-                <strong>Registration Success!</strong><br>
-                Embeddings Stored: ${res.embeddings_stored}<br>
-                Failed: ${res.embeddings_failed}
+        const statusDiv = document.getElementById('reg-status');
+        const thumbnailsDiv = document.getElementById('thumbnails');
+        const captureCount = document.getElementById('capture-count');
+        
+        if (captureBtn) {
+            captureBtn.addEventListener('click', () => {
+                if (this.capturedImages.length < 5) {  // Allow up to 5 images for better accuracy
+                    const b64 = this.captureFrame('webcam', true);
+                    this.capturedImages.push(b64);
+                    this.updateThumbnails(thumbnailsDiv, captureCount);
+                    
+                    if (this.capturedImages.length === 5) {
+                        captureBtn.disabled = true;
+                        captureBtn.textContent = 'Max Images Captured';
+                    } else {
+                        captureBtn.textContent = `Capture Image (${this.capturedImages.length}/5)`;
+                    }
+                    
+                    if (this.capturedImages.length >= 2) {
+                        submitBtn.disabled = false;
+                    }
+                    
+                    this.showToast(`Captured ${this.capturedImages.length}/5 images`, 'success');
+                }
+            });
+        }
+        
+        if (submitBtn) {
+            submitBtn.addEventListener('click', async () => {
+                const name = document.getElementById('username').value.trim();
+                if (!name) {
+                    this.showToast("Please enter a name", "error");
+                    return;
+                }
+                
+                if (this.capturedImages.length < 2) {
+                    this.showToast("Please capture at least 2 images", "error");
+                    return;
+                }
+                
+                submitBtn.disabled = true;
+                captureBtn.disabled = true;
+                statusDiv.classList.remove('hidden');
+                statusDiv.innerHTML = '<div class="spinner"></div> Processing registration...';
+                statusDiv.className = "status-box status-info";
+                
+                try {
+                    const res = await API.registerUser(name, this.capturedImages);
+                    statusDiv.innerHTML = `
+                        <strong>✓ Registration Successful!</strong><br>
+                        User: ${res.name}<br>
+                        Embeddings Stored: ${res.embeddings_stored}<br>
+                        ${res.embeddings_failed > 0 ? `Failed: ${res.embeddings_failed}` : ''}
+                    `;
+                    statusDiv.className = "status-box status-success";
+                    this.showToast(`${name} registered successfully!`, 'success');
+                    
+                    // Reset form
+                    this.capturedImages = [];
+                    document.getElementById('username').value = '';
+                    if (thumbnailsDiv) thumbnailsDiv.innerHTML = '';
+                    if (captureCount) captureCount.textContent = '0/5';
+                    captureBtn.textContent = "Capture Image (0/5)";
+                    captureBtn.disabled = false;
+                    submitBtn.disabled = true;
+                    
+                    // Clear thumbnails after 3 seconds
+                    setTimeout(() => {
+                        statusDiv.classList.add('hidden');
+                    }, 3000);
+                } catch (err) {
+                    statusDiv.innerHTML = `<strong>✗ Registration Failed</strong><br>${err.message}`;
+                    statusDiv.className = "status-box status-error";
+                    this.showToast(err.message, 'error');
+                    submitBtn.disabled = false;
+                    captureBtn.disabled = false;
+                }
+            });
+        }
+    },
+    
+    updateThumbnails(container, countDisplay) {
+        if (!container) return;
+        container.innerHTML = '';
+        this.capturedImages.forEach((img, idx) => {
+            const thumb = document.createElement('div');
+            thumb.className = 'thumbnail';
+            thumb.innerHTML = `
+                <img src="${img}" alt="Capture ${idx + 1}">
+                <div class="remove" data-index="${idx}">×</div>
             `;
-            this.capturedImages = [];
-            captureBtn.innerText = "Capture Image (0/3)";
+            thumb.querySelector('.remove').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.capturedImages.splice(idx, 1);
+                this.updateThumbnails(container, countDisplay);
+                const captureBtn = document.getElementById('capture-btn');
+                const submitBtn = document.getElementById('submit-reg');
+                if (captureBtn) {
+                    captureBtn.disabled = false;
+                    captureBtn.textContent = `Capture Image (${this.capturedImages.length}/5)`;
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = this.capturedImages.length < 2;
+                }
+                if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5 captured`;
+                this.showToast('Image removed', 'info');
+            });
+            container.appendChild(thumb);
         });
+        if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5 captured`;
     },
 
     // --- Data Loading ---
     async loadAttendance() {
-        const data = await API.getAttendance();
         const body = document.getElementById('attendance-body');
-        body.innerHTML = data.map(row => `
-            <tr>
-                <td>${row.user_id}</td>
-                <td>${row.name}</td>
-                <td>${row.date}</td>
-                <td>${row.time}</td>
-            </tr>
-        `).join('');
+        if (!body) return;
+        
+        body.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading...</td></tr>';
+        
+        try {
+            const data = await API.getAttendance();
+            if (data.length === 0) {
+                body.innerHTML = '<tr><td colspan="4">No attendance records found</td></tr>';
+                return;
+            }
+            body.innerHTML = data.map(row => `
+                <tr>
+                    <td>${row.user_id}</td>
+                    <td><strong>${row.name}</strong></td>
+                    <td>${row.date}</td>
+                    <td>${row.time}</td>
+                </tr>
+            `).join('');
+        } catch (err) {
+            body.innerHTML = '<tr><td colspan="4">Failed to load attendance data</td></tr>';
+            this.showToast('Failed to load attendance', 'error');
+        }
     },
 
     async loadStats() {
-        const stats = await API.getTodayStats();
-        document.getElementById('stat-total').innerText = stats.total_users;
-        document.getElementById('stat-present').innerText = stats.present_users;
-        document.getElementById('stat-percent').innerText = stats.attendance_percent + "%";
+        try {
+            const stats = await API.getTodayStats();
+            const totalEl = document.getElementById('stat-total');
+            const presentEl = document.getElementById('stat-present');
+            const percentEl = document.getElementById('stat-percent');
+            const dateEl = document.getElementById('stat-date');
+            
+            if (totalEl) totalEl.innerText = stats.total_users;
+            if (presentEl) presentEl.innerText = stats.present_users;
+            if (percentEl) percentEl.innerText = stats.attendance_percent + "%";
+            if (dateEl) dateEl.innerText = stats.date;
+        } catch (err) {
+            this.showToast('Failed to load statistics', 'error');
+        }
+    },
+    
+    // Cleanup on page unload
+    cleanup() {
+        this.stopScanning();
     }
 };
 
+// Cleanup on page navigation (for single-page feel)
+window.addEventListener('beforeunload', () => {
+    App.cleanup();
+});
 
 ================================================================================
 FILE: frontend/attendance.html
@@ -1316,13 +1745,14 @@ FILE: frontend/attendance.html
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Records | Smart Attendance</title>
+    <title>Records | SAS - Smart Attendance System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="index.html" class="logo">SmartScan AI</a>
+            <a href="index.html" class="logo">SAS<span>.</span></a>
             <ul class="nav-links">
                 <li><a href="scan.html">Scan Face</a></li>
                 <li><a href="register.html">Register</a></li>
@@ -1333,8 +1763,16 @@ FILE: frontend/attendance.html
     </nav>
 
     <main class="container">
-        <div class="card">
+        <div class="page-header">
             <h2>Attendance Log</h2>
+            <p>Full check-in history — filtered by date</p>
+        </div>
+
+        <div class="card">
+            <div class="form-group" style="max-width: 280px; margin-bottom: 0.5rem;">
+                <label for="date-filter">Filter by Date</label>
+                <input type="date" id="date-filter">
+            </div>
             <div class="table-responsive">
                 <table>
                     <thead>
@@ -1346,7 +1784,8 @@ FILE: frontend/attendance.html
                         </tr>
                     </thead>
                     <tbody id="attendance-body">
-                        </tbody>
+                        <tr><td colspan="4">Loading…</td></tr>
+                    </tbody>
                 </table>
             </div>
         </div>
@@ -1357,6 +1796,30 @@ FILE: frontend/attendance.html
     <script>
         window.addEventListener('load', () => {
             App.loadAttendance();
+
+            const dateFilter = document.getElementById('date-filter');
+            if (dateFilter) {
+                const today = new Date().toISOString().split('T')[0];
+                dateFilter.value = today;
+
+                dateFilter.addEventListener('change', async () => {
+                    const tbody = document.getElementById('attendance-body');
+                    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading…</td></tr>';
+                    const data = await API.getAttendance(dateFilter.value);
+                    if (data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">No records for this date</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = data.map(row => `
+                        <tr>
+                            <td>${row.user_id}</td>
+                            <td><strong>${row.name}</strong></td>
+                            <td>${row.date}</td>
+                            <td>${row.time}</td>
+                        </tr>
+                    `).join('');
+                });
+            }
         });
     </script>
 </body>
@@ -1372,13 +1835,14 @@ FILE: frontend/index.html
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Attendance | Home</title>
+    <title>SAS | Smart Attendance System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="index.html" class="logo">SmartScan AI</a>
+            <a href="index.html" class="logo">SAS<span>.</span></a>
             <ul class="nav-links">
                 <li><a href="scan.html">Scan Face</a></li>
                 <li><a href="register.html">Register</a></li>
@@ -1390,11 +1854,34 @@ FILE: frontend/index.html
 
     <main class="container centered">
         <section class="hero">
-            <h1>Welcome to Smart Attendance</h1>
-            <p>Automated face-recognition based check-in system.</p>
+            <div class="hero-badge">
+                <span class="hero-badge-dot"></span>
+                AI-Powered Biometric System
+            </div>
+            <h1>Smart Attendance<br>System</h1>
+            <p>Face recognition-based attendance tracking using ArcFace deep learning — real-time, accurate, and effortless.</p>
             <div class="actions">
-                <a href="scan.html" class="btn btn-primary">Start Scanning</a>
-                <a href="register.html" class="btn btn-secondary">New Registration</a>
+                <a href="scan.html" class="btn btn-primary">→ Start Scanning</a>
+                <a href="register.html" class="btn btn-outline">+ New Registration</a>
+            </div>
+
+            <!-- Decorative feature tiles -->
+            <div class="feature-grid">
+                <div class="feature-tile">
+                    <div class="feature-icon">◉</div>
+                    <h4>ArcFace Detection</h4>
+                    <p>512-dim face embeddings via InsightFace buffalo_l for industry-grade recognition accuracy.</p>
+                </div>
+                <div class="feature-tile">
+                    <div class="feature-icon">⚡</div>
+                    <h4>Instant Log</h4>
+                    <p>Every scan is timestamped and written to a persistent log — source of truth for all records.</p>
+                </div>
+                <div class="feature-tile">
+                    <div class="feature-icon">◎</div>
+                    <h4>Live Dashboard</h4>
+                    <p>Real-time attendance stats, daily summaries, and full attendance history at a glance.</p>
+                </div>
             </div>
         </section>
     </main>
@@ -1411,13 +1898,14 @@ FILE: frontend/register.html
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Register | Smart Attendance</title>
+    <title>Register | SAS - Smart Attendance System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="index.html" class="logo">SmartScan AI</a>
+            <a href="index.html" class="logo">SAS<span>.</span></a>
             <ul class="nav-links">
                 <li><a href="scan.html">Scan Face</a></li>
                 <li><a href="register.html" class="active">Register</a></li>
@@ -1428,19 +1916,43 @@ FILE: frontend/register.html
     </nav>
 
     <main class="container">
+        <div class="page-header">
+            <h2>Register New User</h2>
+            <p>Add a face to the recognition database — capture 2–5 angles for best accuracy</p>
+        </div>
+
         <div class="card">
-            <h2>User Registration</h2>
+            <!-- Decorative step indicator -->
+            <div class="step-indicator">
+                <div class="step active">
+                    <div class="step-num">1</div>
+                    <span class="step-label">Enter Name</span>
+                </div>
+                <div class="step active">
+                    <div class="step-num">2</div>
+                    <span class="step-label">Capture Face</span>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <span class="step-label">Register</span>
+                </div>
+            </div>
+
             <div class="form-group">
                 <label for="username">Full Name</label>
-                <input type="text" id="username" placeholder="Enter name..." required>
+                <input type="text" id="username" placeholder="Enter full name…" required autocomplete="off">
             </div>
 
             <div class="video-wrapper small">
                 <video id="webcam" autoplay playsinline></video>
+                <div class="face-guide"></div>
             </div>
 
+            <div class="thumbnail-grid" id="thumbnails"></div>
+            <div class="capture-count" id="capture-count">0/5 captured</div>
+
             <div class="registration-controls">
-                <button id="capture-btn" class="btn btn-secondary">Capture Image (0/3)</button>
+                <button id="capture-btn" class="btn btn-secondary">Capture Image (0/5)</button>
                 <button id="submit-reg" class="btn btn-primary" disabled>Register User</button>
             </div>
 
@@ -1453,6 +1965,9 @@ FILE: frontend/register.html
     <script>
         window.addEventListener('load', () => {
             App.initRegisterPage();
+        });
+        window.addEventListener('beforeunload', () => {
+            App.stopWebcam();
         });
     </script>
 </body>
@@ -1468,13 +1983,14 @@ FILE: frontend/scan.html
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scan Face | Smart Attendance</title>
+    <title>Scan Face | SAS - Smart Attendance System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="index.html" class="logo">SmartScan AI</a>
+            <a href="index.html" class="logo">SAS<span>.</span></a>
             <ul class="nav-links">
                 <li><a href="scan.html" class="active">Scan Face</a></li>
                 <li><a href="register.html">Register</a></li>
@@ -1484,18 +2000,64 @@ FILE: frontend/scan.html
         </div>
     </nav>
 
-    <main class="container">
-        <div class="card scan-container">
-            <h2>Live Attendance Scan</h2>
-            <div class="video-wrapper">
-                <video id="webcam" autoplay playsinline></video>
-                <canvas id="capture-canvas" style="display:none;"></canvas>
-                <div id="scan-overlay" class="overlay">Initializing...</div>
+    <main class="container scan-page-container">
+        <!-- Decorative page heading -->
+        <div class="scan-page-label">
+            <div>
+                <h2>Face Scan</h2>
+                <p>Position your face inside the oval, then press Scan</p>
             </div>
-            
-            <div id="status-box" class="status-box">
-                <p id="status-message">Waiting for camera...</p>
-                <small id="status-detail">Align your face in the center of the frame.</small>
+        </div>
+
+        <div class="scan-layout">
+
+            <!-- ── Left: Camera ── -->
+            <div class="camera-col">
+                <div class="camera-frame" id="camera-frame">
+                    <video id="webcam" autoplay playsinline></video>
+                    <div class="scan-corners">
+                        <span class="sc tl"></span>
+                        <span class="sc tr"></span>
+                        <span class="sc bl"></span>
+                        <span class="sc br"></span>
+                    </div>
+                    <div class="face-target-ring"></div>
+                    <div class="scan-sweep" id="scan-sweep"></div>
+                    <div class="live-badge">
+                        <span class="live-pulse"></span>
+                        LIVE
+                    </div>
+                </div>
+                <div class="scan-btn-row">
+                    <button id="scan-btn" class="btn btn-primary btn-scan-face" disabled>
+                        Starting camera…
+                    </button>
+                </div>
+                <p class="camera-caption">Keep your face inside the oval, then press Scan</p>
+            </div>
+
+            <!-- ── Right: Status + Log ── -->
+            <div class="info-col">
+
+                <div class="scan-result-card state-init" id="scan-result-card">
+                    <div class="result-icon" id="result-icon">◎</div>
+                    <h2 id="status-message">Ready</h2>
+                    <p id="status-detail">Camera initializing — please wait</p>
+                </div>
+
+                <div id="recognized-user"></div>
+
+                <!-- Recent activity from log -->
+                <div class="log-panel">
+                    <div class="log-panel-header">
+                        <h4>Recent Activity</h4>
+                        <button id="log-refresh-btn" class="btn-icon" title="Refresh">↻</button>
+                    </div>
+                    <div id="log-entries">
+                        <p class="log-empty">No recent activity</p>
+                    </div>
+                </div>
+
             </div>
         </div>
     </main>
@@ -1503,10 +2065,8 @@ FILE: frontend/scan.html
     <script src="api.js"></script>
     <script src="app.js"></script>
     <script>
-        // Specific logic for Scan page
-        window.addEventListener('load', () => {
-            App.initScanPage();
-        });
+        window.addEventListener('load', () => App.initScanPage());
+        window.addEventListener('beforeunload', () => App.stopWebcam());
     </script>
 </body>
 </html>
@@ -1521,13 +2081,14 @@ FILE: frontend/stats.html
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stats | Smart Attendance</title>
+    <title>Stats | SAS - Smart Attendance System</title>
     <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <nav class="navbar">
         <div class="container">
-            <a href="index.html" class="logo">SmartScan AI</a>
+            <a href="index.html" class="logo">SAS<span>.</span></a>
             <ul class="nav-links">
                 <li><a href="scan.html">Scan Face</a></li>
                 <li><a href="register.html">Register</a></li>
@@ -1538,19 +2099,26 @@ FILE: frontend/stats.html
     </nav>
 
     <main class="container">
-        <h2>Daily Statistics</h2>
+        <div class="page-header">
+            <h2>Today's Overview</h2>
+            <p id="stat-date">Loading…</p>
+        </div>
+
         <div class="stats-grid">
-            <div class="card stat-card">
-                <h3>Total Users</h3>
-                <p id="stat-total">-</p>
+            <div class="card stat-card" data-bg="∞">
+                <span class="stat-icon">👥</span>
+                <h3>Total Registered</h3>
+                <p id="stat-total">—</p>
             </div>
-            <div class="card stat-card">
+            <div class="card stat-card" data-bg="✓">
+                <span class="stat-icon">✅</span>
                 <h3>Present Today</h3>
-                <p id="stat-present">-</p>
+                <p id="stat-present">—</p>
             </div>
-            <div class="card stat-card">
-                <h3>Attendance %</h3>
-                <p id="stat-percent">-</p>
+            <div class="card stat-card" data-bg="%">
+                <span class="stat-icon">📊</span>
+                <h3>Attendance Rate</h3>
+                <p id="stat-percent">—</p>
             </div>
         </div>
     </main>
@@ -1560,6 +2128,7 @@ FILE: frontend/stats.html
     <script>
         window.addEventListener('load', () => {
             App.loadStats();
+            setInterval(() => App.loadStats(), 30000);
         });
     </script>
 </body>
@@ -1570,67 +2139,1255 @@ FILE: frontend/stats.html
 FILE: frontend/styles.css
 ================================================================================
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   CSS Variables
+───────────────────────────────────────────────────────────────────────────── */
 :root {
-    --bg-main: #0f172a;
-    --bg-card: #1e293b;
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --accent: #3b82f6;
-    --success: #22c55e;
-    --warning: #f59e0b;
-    --error: #ef4444;
+    --bg-dark:         #07090f;
+    --bg-card:         #0d1117;
+    --bg-elevated:     #161b22;
+    --primary:         #f97316;
+    --primary-dark:    #ea580c;
+    --primary-light:   #fb923c;
+    --success:         #22c55e;
+    --warning:         #f59e0b;
+    --error:           #ef4444;
+    --text-primary:    #e6edf3;
+    --text-secondary:  #7d8590;
+    --text-muted:      #3d444d;
+    --border:          #21262d;
+    --glass-bg:        rgba(13, 17, 23, 0.85);
+    --glass-border:    rgba(255, 255, 255, 0.07);
+    --gradient-primary: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+    --gradient-fire:    linear-gradient(135deg, #f97316 0%, #f43f5e 100%);
+    --gradient-dark:    linear-gradient(160deg, #07090f 0%, #0d1117 100%);
+    --shadow-sm:  0 2px 8px rgba(0,0,0,0.5);
+    --shadow-md:  0 8px 24px rgba(0,0,0,0.55);
+    --shadow-lg:  0 24px 64px rgba(0,0,0,0.65);
+    --shadow-glow:    0 0 24px rgba(249,115,22,0.35);
+    --shadow-glow-sm: 0 0 12px rgba(249,115,22,0.2);
+    --radius-sm:  0.5rem;
+    --radius-md:  0.875rem;
+    --radius-lg:  1.25rem;
+    --radius-xl:  1.75rem;
+    --navbar-h:   68px;
+    --transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* ─────────────────────────────────────────────────────────────────────────────
+   Reset + Body
+───────────────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html { scroll-behavior: smooth; }
 
 body {
-    font-family: 'Inter', sans-serif;
-    background-color: var(--bg-main);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: var(--bg-dark);
+    /* Radial aurora glow at top + subtle dot grid */
+    background-image:
+        radial-gradient(ellipse 90% 55% at 50% -10%, rgba(249,115,22,0.07) 0%, transparent 70%),
+        radial-gradient(circle at 1px 1px, rgba(255,255,255,0.022) 1px, transparent 0);
+    background-size: 100% 100%, 34px 34px;
+    background-attachment: fixed;
     color: var(--text-primary);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Scrollbar
+───────────────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-dark); }
+::-webkit-scrollbar-thumb { background: rgba(249,115,22,0.45); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Container
+───────────────────────────────────────────────────────────────────────────── */
+.container {
+    max-width: 1340px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Navbar
+───────────────────────────────────────────────────────────────────────────── */
+.navbar {
+    height: var(--navbar-h);
+    background: rgba(7, 9, 15, 0.88);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border-bottom: 1px solid var(--glass-border);
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+}
+
+/* subtle bottom glow line */
+.navbar::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(249,115,22,0.25) 50%, transparent 100%);
+}
+
+.navbar .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.logo {
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-decoration: none;
+    position: relative;
+}
+
+.logo span {
+    background: var(--gradient-fire);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.nav-links {
+    display: flex;
+    gap: 0.25rem;
+    list-style: none;
+}
+
+.nav-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.875rem;
+    padding: 0.45rem 1rem;
+    border-radius: 0.5rem;
+    transition: var(--transition);
+    position: relative;
+    letter-spacing: 0.01em;
+}
+
+.nav-links a:hover {
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.05);
+}
+
+.nav-links a.active {
+    color: var(--primary);
+    background: rgba(249,115,22,0.08);
+}
+
+.nav-links a.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; left: 50%;
+    transform: translateX(-50%);
+    width: 18px; height: 2px;
+    background: var(--gradient-primary);
+    border-radius: 99px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Buttons
+───────────────────────────────────────────────────────────────────────────── */
+.btn {
+    padding: 0.7rem 1.6rem;
+    border-radius: 0.625rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: var(--transition);
+    letter-spacing: 0.01em;
+}
+
+/* Shimmer sweep */
+.btn::after {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 60%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.5s ease;
+}
+.btn:hover:not(:disabled)::after { left: 160%; }
+
+.btn-primary {
+    background: var(--gradient-primary);
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3), var(--shadow-glow-sm);
+}
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3), var(--shadow-glow);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+
+.btn-secondary {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+.btn-secondary:hover:not(:disabled) {
+    border-color: rgba(249,115,22,0.4);
+    background: rgba(249,115,22,0.06);
+    transform: translateY(-1px);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid rgba(249,115,22,0.5);
+    color: var(--primary);
+}
+.btn-outline:hover:not(:disabled) {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-glow);
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cards
+───────────────────────────────────────────────────────────────────────────── */
+.card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255,255,255,0.04);
+    transition: var(--transition);
+    margin-top: 2rem;
+}
+.card:hover {
+    border-color: rgba(249,115,22,0.18);
+    box-shadow: var(--shadow-lg), 0 0 32px rgba(249,115,22,0.06);
+    transform: translateY(-3px);
+}
+.card h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    color: var(--text-primary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Hero
+───────────────────────────────────────────────────────────────────────────── */
+.hero {
+    text-align: center;
+    padding: 6rem 2rem 3rem;
+}
+
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(249,115,22,0.08);
+    border: 1px solid rgba(249,115,22,0.25);
+    color: var(--primary-light);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.35rem 0.9rem;
+    border-radius: 99px;
+    margin-bottom: 1.75rem;
+}
+
+.hero-badge-dot {
+    width: 6px;
+    height: 6px;
+    background: var(--primary);
+    border-radius: 50%;
+    animation: blink-dot 1.5s ease-in-out infinite;
+}
+
+.hero h1 {
+    font-size: 3.75rem;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -1.5px;
+    margin-bottom: 1.25rem;
+    background: linear-gradient(135deg, #ffffff 0%, #e6edf3 30%, var(--primary-light) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.hero p {
+    font-size: 1.15rem;
+    color: var(--text-secondary);
+    margin-bottom: 2.25rem;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.7;
+}
+
+.actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Feature Grid  (index.html decorative tiles)
+───────────────────────────────────────────────────────────────────────────── */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    max-width: 900px;
+    margin: 3.5rem auto 0;
+}
+
+.feature-tile {
+    background: rgba(13,17,23,0.7);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.75rem 1.5rem;
+    text-align: left;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.feature-tile::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--gradient-primary);
+    transform: scaleX(0);
+    transition: transform 0.35s ease;
+    transform-origin: left;
+}
+
+.feature-tile:hover {
+    border-color: rgba(249,115,22,0.2);
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg), 0 0 30px rgba(249,115,22,0.05);
+}
+.feature-tile:hover::before { transform: scaleX(1); }
+
+.feature-icon {
+    width: 44px;
+    height: 44px;
+    background: rgba(249,115,22,0.1);
+    border: 1px solid rgba(249,115,22,0.2);
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    margin-bottom: 1rem;
+}
+
+.feature-tile h4 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.4rem;
+}
+
+.feature-tile p {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Page Header
+───────────────────────────────────────────────────────────────────────────── */
+.page-header {
+    padding: 2.5rem 0 0;
+    margin-bottom: 0.25rem;
+}
+
+.page-header h2 {
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+    margin-bottom: 0.35rem;
+}
+
+.page-header p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Step Indicator  (register.html)
+───────────────────────────────────────────────────────────────────────────── */
+.step-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 2rem;
+}
+
+.step {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex: 1;
+    position: relative;
+}
+
+.step:not(:last-child)::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    margin: 0 0.5rem;
+}
+
+.step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    transition: var(--transition);
+}
+
+.step.active .step-num {
+    background: var(--gradient-primary);
+    border-color: var(--primary);
+    color: #fff;
+    box-shadow: var(--shadow-glow-sm);
+}
+
+.step-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+}
+
+.step.active .step-label { color: var(--primary); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Video Wrapper
+───────────────────────────────────────────────────────────────────────────── */
+.video-wrapper {
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    aspect-ratio: 4/3;
+    max-width: 640px;
+    margin: 1.5rem auto;
+    border: 1px solid var(--glass-border);
+    transition: var(--transition);
+    box-shadow: var(--shadow-md);
+}
+
+.video-wrapper.scanning {
+    border-color: var(--primary);
+    box-shadow: var(--shadow-glow);
+}
+
+.video-wrapper.small { max-width: 460px; }
+
+video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.overlay {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: rgba(0,0,0,0.8);
+    padding: 0.4rem 0.85rem;
+    border-radius: 2rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--primary);
+    border: 1px solid rgba(249,115,22,0.4);
+    letter-spacing: 0.05em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Face Detection Guide
+───────────────────────────────────────────────────────────────────────────── */
+.face-guide {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 180px; height: 220px;
+    border: 2px dashed rgba(249,115,22,0.4);
+    border-radius: 50%;
+    pointer-events: none;
+    animation: pulse-ring 2.4s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Thumbnail Grid
+───────────────────────────────────────────────────────────────────────────── */
+.thumbnail-grid {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.thumbnail {
+    width: 76px; height: 76px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    position: relative;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.thumbnail:hover {
+    border-color: var(--primary);
+    transform: scale(1.06);
+    box-shadow: var(--shadow-glow-sm);
+}
+.thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+
+.thumbnail .remove {
+    position: absolute;
+    top: -8px; right: -8px;
+    width: 20px; height: 20px;
+    background: var(--error);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.thumbnail:hover .remove { opacity: 1; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Status Box
+───────────────────────────────────────────────────────────────────────────── */
+.status-box {
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius-md);
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+    animation: slideIn 0.3s ease;
     line-height: 1.6;
 }
 
-.container { max-width: 1000px; margin: 0 auto; padding: 0 1rem; }
-.centered { display: flex; align-items: center; justify-content: center; min-height: 80vh; text-align: center; }
+@keyframes slideIn {
+    from { opacity:0; transform: translateY(-10px); }
+    to   { opacity:1; transform: translateY(0); }
+}
 
-/* Navbar */
-.navbar { background: #111; padding: 1rem 0; border-bottom: 1px solid #333; }
-.navbar .container { display: flex; justify-content: space-between; align-items: center; }
-.logo { font-weight: bold; font-size: 1.5rem; color: var(--accent); text-decoration: none; }
-.nav-links { list-style: none; display: flex; gap: 1.5rem; }
-.nav-links a { color: var(--text-secondary); text-decoration: none; transition: 0.3s; }
-.nav-links a:hover, .nav-links a.active { color: var(--text-primary); }
+.status-success { background: rgba(34,197,94,0.08);  border: 1px solid rgba(34,197,94,0.3);  color: var(--success); }
+.status-error   { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.3);  color: var(--error); }
+.status-warning { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); color: var(--warning); }
+.status-info    { background: rgba(249,115,22,0.08); border: 1px solid rgba(249,115,22,0.25); color: var(--primary-light); }
 
-/* UI Components */
-.card { background: var(--bg-card); padding: 2rem; border-radius: 0.75rem; margin: 2rem 0; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
-.btn { padding: 0.75rem 1.5rem; border-radius: 0.5rem; border: none; cursor: pointer; font-weight: 600; text-decoration: none; transition: 0.2s; }
-.btn-primary { background: var(--accent); color: white; }
-.btn-secondary { background: #475569; color: white; }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* Video Handling */
-.video-wrapper { position: relative; width: 100%; max-width: 640px; margin: 1rem auto; background: #000; border-radius: 0.5rem; overflow: hidden; aspect-ratio: 4/3; }
-video { width: 100%; height: 100%; object-fit: cover; }
-.overlay { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 0.5rem; border-radius: 0.25rem; font-size: 0.8rem; }
-
-/* Forms & Tables */
+/* ─────────────────────────────────────────────────────────────────────────────
+   Form Elements
+───────────────────────────────────────────────────────────────────────────── */
 .form-group { margin-bottom: 1.5rem; }
-input { width: 100%; padding: 0.75rem; border-radius: 0.4rem; border: 1px solid #334155; background: #0f172a; color: white; margin-top: 0.5rem; }
-table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-th, td { padding: 1rem; text-align: left; border-bottom: 1px solid #334155; }
-th { color: var(--text-secondary); text-transform: uppercase; font-size: 0.8rem; }
 
-/* Stats */
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, min-minmax(250px, 1fr)); gap: 1.5rem; }
-.stat-card h3 { color: var(--text-secondary); font-size: 1rem; margin-bottom: 0.5rem; }
-.stat-card p { font-size: 2.5rem; font-weight: bold; color: var(--accent); }
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
 
-/* Status Boxes */
-.status-box { padding: 1rem; border-radius: 0.5rem; margin-top: 1rem; text-align: center; border: 1px solid #334155; }
-.status-success { border-color: var(--success); color: var(--success); }
-.status-error { border-color: var(--error); color: var(--error); }
-.status-warning { border-color: var(--warning); color: var(--warning); }
-.hidden { display: none; }
+input, select, textarea {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: rgba(22,27,34,0.9);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-family: inherit;
+    transition: var(--transition);
+}
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: rgba(249,115,22,0.6);
+    background: rgba(22,27,34,1);
+    box-shadow: 0 0 0 3px rgba(249,115,22,0.1);
+}
+input::placeholder { color: var(--text-muted); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tables
+───────────────────────────────────────────────────────────────────────────── */
+.table-responsive { overflow-x: auto; margin-top: 1.25rem; border-radius: var(--radius-md); }
+
+table { width: 100%; border-collapse: collapse; }
+
+th, td {
+    padding: 0.9rem 1.1rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(33,38,45,0.8);
+}
+
+th {
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.8px;
+    background: rgba(22,27,34,0.5);
+}
+
+th:first-child { border-radius: var(--radius-sm) 0 0 0; }
+th:last-child  { border-radius: 0 var(--radius-sm) 0 0; }
+
+td { font-size: 0.9rem; }
+td strong { color: var(--text-primary); font-weight: 600; }
+
+tbody tr {
+    transition: background 0.15s;
+}
+tbody tr:hover { background: rgba(249,115,22,0.04); }
+tbody tr:nth-child(even) { background: rgba(255,255,255,0.012); }
+tbody tr:nth-child(even):hover { background: rgba(249,115,22,0.04); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Stats Grid
+───────────────────────────────────────────────────────────────────────────── */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.25rem;
+    margin-top: 1.5rem;
+}
+
+.stat-card {
+    text-align: center;
+    padding: 2.5rem 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Decorative top accent bar */
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--gradient-primary);
+    opacity: 0.5;
+    transition: opacity 0.3s;
+}
+.stat-card:hover::before { opacity: 1; }
+
+/* Large decorative background number */
+.stat-card::after {
+    content: attr(data-bg);
+    position: absolute;
+    bottom: -0.75rem; right: 1rem;
+    font-size: 7rem;
+    font-weight: 900;
+    color: rgba(249,115,22,0.04);
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-icon {
+    font-size: 1.75rem;
+    margin-bottom: 0.75rem;
+    display: block;
+    filter: drop-shadow(0 0 8px rgba(249,115,22,0.4));
+}
+
+.stat-card h3 {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 600;
+}
+
+.stat-card p {
+    font-size: 3.25rem;
+    font-weight: 800;
+    line-height: 1;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -1px;
+}
+
+.stat-card .stat-date {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+    font-weight: 400;
+    background: none;
+    -webkit-background-clip: unset;
+    background-clip: unset;
+    color: var(--text-secondary);
+    letter-spacing: normal;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   User Profile Card
+───────────────────────────────────────────────────────────────────────────── */
+.user-profile-card {
+    background: var(--bg-elevated);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+    margin-top: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    animation: slideIn 0.3s ease;
+    border: 1px solid var(--glass-border);
+}
+
+.user-avatar {
+    width: 52px; height: 52px;
+    background: var(--gradient-primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.user-info h4 { font-size: 1.1rem; margin-bottom: 0.2rem; }
+.user-info p  { color: var(--text-secondary); font-size: 0.85rem; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Spinner
+───────────────────────────────────────────────────────────────────────────── */
+.spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: var(--primary-light);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Toast
+───────────────────────────────────────────────────────────────────────────── */
+.toast-container {
+    position: fixed;
+    bottom: 2rem; right: 2rem;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.toast {
+    background: rgba(22,27,34,0.95);
+    backdrop-filter: blur(12px);
+    border-left: 3px solid var(--primary);
+    padding: 0.85rem 1.4rem;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    animation: slideInRight 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+    max-width: 340px;
+    border: 1px solid var(--glass-border);
+    border-left: 3px solid var(--primary);
+}
+@keyframes slideInRight {
+    from { opacity:0; transform: translateX(60px); }
+    to   { opacity:1; transform: translateX(0); }
+}
+.toast.success { border-left-color: var(--success); }
+.toast.error   { border-left-color: var(--error); }
+.toast.warning { border-left-color: var(--warning); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Registration Controls
+───────────────────────────────────────────────────────────────────────────── */
+.registration-controls {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.capture-count {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--primary);
+    margin-top: 0.6rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Responsive
+───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .container { padding: 0 1rem; }
+    .navbar .container { gap: 0.75rem; }
+    .nav-links { gap: 0; }
+    .nav-links a { padding: 0.4rem 0.65rem; font-size: 0.8rem; }
+    .hero { padding: 4rem 1rem 2rem; }
+    .hero h1 { font-size: 2.2rem; letter-spacing: -0.75px; }
+    .hero p { font-size: 1rem; }
+    .stats-grid { grid-template-columns: 1fr; }
+    .actions { flex-direction: column; align-items: center; }
+    .registration-controls { flex-direction: column; }
+    .feature-grid { grid-template-columns: 1fr; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Utility
+───────────────────────────────────────────────────────────────────────────── */
+.hidden { display: none !important; }
+
+.centered {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - var(--navbar-h));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Scan Page — layout
+───────────────────────────────────────────────────────────────────────────── */
+.scan-page-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+.scan-layout {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 2rem;
+    align-items: start;
+}
+
+.camera-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.info-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Camera frame
+───────────────────────────────────────────────────────────────────────────── */
+.camera-frame {
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    aspect-ratio: 4/3;
+    border: 1px solid var(--glass-border);
+    transition: border-color 0.4s ease, box-shadow 0.4s ease;
+    box-shadow: var(--shadow-md);
+}
+
+.camera-frame.scanning {
+    border-color: rgba(249,115,22,0.5);
+    box-shadow: 0 0 0 1px rgba(249,115,22,0.15), var(--shadow-glow);
+}
+
+.camera-frame.success {
+    border-color: rgba(34,197,94,0.5);
+    box-shadow: 0 0 0 1px rgba(34,197,94,0.15), 0 0 32px rgba(34,197,94,0.3);
+}
+
+.camera-frame.warning {
+    border-color: rgba(245,158,11,0.5);
+    box-shadow: 0 0 0 1px rgba(245,158,11,0.15), 0 0 24px rgba(245,158,11,0.2);
+}
+
+.camera-frame video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Corner brackets */
+.scan-corners { position: absolute; inset: 0; pointer-events: none; }
+
+.sc {
+    position: absolute;
+    width: 28px; height: 28px;
+    border-color: var(--primary);
+    border-style: solid;
+}
+
+.sc.tl { top:16px;    left:16px;  border-width: 3px 0 0 3px; border-radius: 4px 0 0 0; }
+.sc.tr { top:16px;    right:16px; border-width: 3px 3px 0 0; border-radius: 0 4px 0 0; }
+.sc.bl { bottom:16px; left:16px;  border-width: 0 0 3px 3px; border-radius: 0 0 0 4px; }
+.sc.br { bottom:16px; right:16px; border-width: 0 3px 3px 0; border-radius: 0 0 4px 0; }
+
+/* Face oval */
+.face-target-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 190px; height: 230px;
+    border: 2px dashed rgba(249,115,22,0.4);
+    border-radius: 50%;
+    pointer-events: none;
+    animation: pulse-ring 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse-ring {
+    0%, 100% { opacity: 0.4; transform: translate(-50%,-50%) scale(1); }
+    50%       { opacity: 0.9; transform: translate(-50%,-50%) scale(1.04); }
+}
+
+/* Scan sweep line */
+.scan-sweep {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%);
+    box-shadow: 0 0 14px var(--primary), 0 0 30px rgba(249,115,22,0.4);
+    animation: sweep-line 2.2s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes sweep-line {
+    0%   { top:0%;   opacity:1; }
+    85%  { opacity:1; }
+    100% { top:100%; opacity:0; }
+}
+
+/* Live badge */
+.live-badge {
+    position: absolute;
+    top: 1rem; right: 1rem;
+    background: rgba(0,0,0,0.75);
+    color: var(--primary);
+    border: 1px solid rgba(249,115,22,0.4);
+    padding: 0.28rem 0.65rem;
+    border-radius: 2rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    backdrop-filter: blur(6px);
+}
+
+.live-pulse {
+    width: 6px; height: 6px;
+    background: var(--primary);
+    border-radius: 50%;
+    animation: blink-dot 1s ease-in-out infinite;
+}
+
+@keyframes blink-dot {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.1; }
+}
+
+.camera-caption {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
+}
+
+/* Scan button */
+.scan-btn-row {
+    display: flex;
+    justify-content: center;
+    margin-top: 0.25rem;
+}
+
+.btn-scan-face {
+    width: 100%;
+    max-width: 320px;
+    padding: 1rem 2rem;
+    font-size: 0.975rem;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    letter-spacing: 0.03em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Scan result card (right panel)
+───────────────────────────────────────────────────────────────────────────── */
+.scan-result-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 2rem 1.75rem;
+    text-align: center;
+    transition: border-color 0.35s, background 0.35s, box-shadow 0.35s;
+}
+
+.scan-result-card.state-init     { border-color: var(--glass-border); }
+.scan-result-card.state-ready    { border-color: rgba(249,115,22,0.25); background: rgba(249,115,22,0.04); }
+.scan-result-card.state-scanning { border-color: rgba(249,115,22,0.25); background: rgba(249,115,22,0.04); }
+.scan-result-card.state-success  { border-color: rgba(34,197,94,0.35);  background: rgba(34,197,94,0.05); box-shadow: 0 0 28px rgba(34,197,94,0.12); }
+.scan-result-card.state-warning  { border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.05); }
+.scan-result-card.state-error    { border-color: rgba(239,68,68,0.35);  background: rgba(239,68,68,0.05); }
+
+.result-icon {
+    font-size: 3rem;
+    line-height: 1;
+    margin-bottom: 1rem;
+    display: block;
+}
+
+.scan-result-card h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    color: var(--text-primary);
+}
+
+.scan-result-card p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.55;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Recognized user card
+───────────────────────────────────────────────────────────────────────────── */
+.user-recognized {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+    animation: slideIn 0.35s ease;
+}
+
+.user-avatar-large {
+    min-width: 52px;
+    width: 52px; height: 52px;
+    background: var(--gradient-primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-glow-sm);
+}
+
+.user-recognized-info h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.2rem; }
+.user-recognized-info p  { color: var(--text-secondary); font-size: 0.8rem; }
+
+.confidence-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0.35rem;
+    background: rgba(249,115,22,0.1);
+    color: var(--primary-light);
+    border: 1px solid rgba(249,115,22,0.25);
+    padding: 0.15rem 0.55rem;
+    border-radius: 2rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Log panel
+───────────────────────────────────────────────────────────────────────────── */
+.log-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+}
+
+.log-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.log-panel-header h4 {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 1.8px;
+    margin: 0;
+    font-weight: 700;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.4rem;
+    transition: color 0.2s, background 0.2s;
+    line-height: 1;
+}
+.btn-icon:hover {
+    color: var(--primary);
+    background: rgba(249,115,22,0.1);
+}
+
+.log-empty {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 0.75rem 0;
+    margin: 0;
+}
+
+.log-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid rgba(33,38,45,0.6);
+    font-size: 0.8rem;
+}
+.log-entry:last-child { border-bottom: none; }
+
+.log-icon {
+    font-size: 0.85rem;
+    min-width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.log-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.08rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.log-label {
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.log-ts {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.log-success .log-icon { color: var(--success); }
+.log-warning .log-icon { color: var(--warning); }
+.log-error   .log-icon { color: var(--error); }
+.log-muted   .log-icon { color: var(--text-muted); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Scan page — scan label strip (decorative)
+───────────────────────────────────────────────────────────────────────────── */
+.scan-page-label {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 1.25rem;
+}
+
+.scan-page-label h2 {
+    font-size: 1.4rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.scan-page-label p {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin-top: 0.1rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Responsive — scan layout stacks below 900 px
+───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+    .scan-layout { grid-template-columns: 1fr; }
+}
 
 
 ================================================================================
@@ -1859,6 +3616,7 @@ FILE: vision/detector.py
 ================================================================================
 
 import cv2
+# trigger reload
 import mediapipe as mp
 
 
