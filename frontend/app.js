@@ -5,6 +5,7 @@ const App = {
     lastRecognizedUserId: null,
     lastScanStatus: null,
     registeredUsers: [],
+    _statsRange: 'today',
 
     // Toast helper
     showToast(message, type = 'info') {
@@ -427,23 +428,491 @@ const App = {
         }
     },
 
+    // --- Page: Stats Dashboard ---
     async loadStats() {
+        const range = this._statsRange || 'today';
         try {
-            const stats = await API.getTodayStats();
-            const totalEl = document.getElementById('stat-total');
-            const presentEl = document.getElementById('stat-present');
-            const percentEl = document.getElementById('stat-percent');
-            const dateEl = document.getElementById('stat-date');
-            
-            if (totalEl) totalEl.innerText = stats.total_users;
-            if (presentEl) presentEl.innerText = stats.present_users;
-            if (percentEl) percentEl.innerText = stats.attendance_percent + "%";
-            if (dateEl) dateEl.innerText = stats.date;
+            if (range === 'today') {
+                await this._loadTodayDash();
+            } else {
+                await this._loadMultiDayDash(range === 'week' ? 7 : 30);
+            }
+            this._flashDashUpdate();
         } catch (err) {
+            console.error('Stats load error:', err);
             this.showToast('Failed to load statistics', 'error');
         }
     },
-    
+
+    async _loadTodayDash() {
+        const today     = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+        const [stats, users, todayRecs, yesterdayRecs] = await Promise.all([
+            API.getTodayStats(),
+            API.getUsers(),
+            API.getAttendance(today),
+            API.getAttendance(yesterday),
+        ]);
+
+        const present = stats.present_users;
+        const total   = stats.total_users;
+        const percent = stats.attendance_percent;
+        const yPresent = new Set(yesterdayRecs.map(r => r.user_id)).size;
+        const diff = present - yPresent;
+
+        // Date label
+        this._setEl('stat-date', new Date().toLocaleDateString('en-US', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        }));
+        this._setEl('hero-label', 'Present Today');
+
+        // Hero big numbers
+        this._animateNum('stat-present', present);
+        this._animateNum('stat-total',   total);
+        this._animateNum('sec-total',    total);
+        this._animateNum('sec-absent',   total - present);
+        this._setEl('hero-percent', percent + '%');
+        this._setEl('sec-rate',     percent + '%');
+        this._setEl('sec-rate-sub', 'of total registered');
+        this._setEl('sec-absent-sub', 'As of now');
+        this._setEl('sec-peak-label', 'Peak Check-in Hour');
+
+        // Progress bar
+        const bar = document.getElementById('hero-bar-fill');
+        if (bar) setTimeout(() => { bar.style.width = Math.min(percent, 100) + '%'; }, 120);
+
+        // Health color on hero card
+        const card = document.getElementById('hero-card');
+        if (card) card.className = 'dashboard-hero-card ' +
+            (percent >= 75 ? 'health-good' : percent >= 50 ? 'health-warn' : 'health-critical');
+
+        // Trend badge
+        const badge  = document.getElementById('trend-badge');
+        const tIcon  = document.getElementById('trend-icon');
+        const tText  = document.getElementById('trend-text');
+        if (badge && tIcon && tText) {
+            if (diff > 0) {
+                badge.className = 'trend-badge trend-up';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-up"></i>';
+                tText.innerText = `+${diff} vs yesterday`;
+            } else if (diff < 0) {
+                badge.className = 'trend-badge trend-down';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-down"></i>';
+                tText.innerText  = `${diff} vs yesterday`;
+            } else {
+                badge.className = 'trend-badge trend-neutral';
+                tIcon.innerHTML = '<i class="fas fa-minus"></i>';
+                tText.innerText  = yPresent === 0 ? 'No data yesterday' : 'Same as yesterday';
+            }
+        }
+
+        // Hourly distribution
+        const hourlyData = {};
+        todayRecs.forEach(r => {
+            const h = parseInt(r.time.split(':')[0], 10);
+            hourlyData[h] = (hourlyData[h] || 0) + 1;
+        });
+
+        // Peak hour
+        const hrs = Object.keys(hourlyData).map(Number);
+        const peak = hrs.length > 0 ? hrs.reduce((a, b) => hourlyData[a] > hourlyData[b] ? a : b) : null;
+        this._setEl('sec-peak', peak !== null ? this._fmtHour(peak) : '—');
+
+        // Chart
+        this._setEl('chart-subtitle', 'Check-ins by hour — Today');
+        this._setEl('chart-meta',     todayRecs.length + ' check-ins');
+        this._drawHourlyChart(hourlyData, todayRecs.length === 0);
+
+        // Recent check-ins panel
+        const sorted = [...todayRecs].sort((a, b) => b.time.localeCompare(a.time));
+        this._renderCheckinList(sorted.slice(0, 10));
+        this._setEl('checkin-count-badge', todayRecs.length);
+
+        // Absent users panel
+        const presentIds = new Set(todayRecs.map(r => r.user_id));
+        const absent = users.filter(u => !presentIds.has(u.id));
+        this._renderAbsentList(absent);
+        this._setEl('absent-count-badge', absent.length);
+    },
+
+    async _loadMultiDayDash(days) {
+        const dates = [];
+        for (let i = 0; i < days; i++) {
+            dates.push(new Date(Date.now() - i * 86400000).toISOString().split('T')[0]);
+        }
+
+        const [stats, allRecords] = await Promise.all([
+            API.getTodayStats(),
+            Promise.all(dates.map(d => API.getAttendance(d))),
+        ]);
+
+        const total     = stats.total_users;
+        const label     = days === 7 ? 'This Week' : 'This Month';
+
+        // Build daily counts (unique users per day)
+        const dailyCounts = {};
+        dates.forEach((d, i) => {
+            dailyCounts[d] = new Set(allRecords[i].map(r => r.user_id)).size;
+        });
+
+        const totalCheckins = Object.values(dailyCounts).reduce((a, b) => a + b, 0);
+        const avgPresent    = totalCheckins / days;
+        const avgPercent    = total > 0 ? Math.round((avgPresent / total) * 100) : 0;
+
+        // Best day
+        const bestDay = Object.keys(dailyCounts).reduce((a, b) => dailyCounts[a] >= dailyCounts[b] ? a : b, dates[0]);
+        const bestDayLabel = new Date(bestDay + 'T00:00:00').toLocaleDateString('en-US',
+            { weekday: 'short', month: 'short', day: 'numeric' });
+
+        // Trend: compare first half vs second half of the range
+        const half = Math.floor(days / 2);
+        const recentTotal = dates.slice(0, half).reduce((s, d) => s + dailyCounts[d], 0);
+        const olderTotal  = dates.slice(half).reduce((s, d) => s + dailyCounts[d], 0);
+        const halfDiff    = recentTotal - olderTotal;
+
+        // Date label
+        this._setEl('stat-date', `${label} — ${dates[dates.length - 1]} → ${dates[0]}`);
+        this._setEl('hero-label', `Avg Present / Day`);
+
+        this._animateNum('stat-present', Math.round(avgPresent));
+        this._animateNum('stat-total',   total);
+        this._animateNum('sec-total',    total);
+        this._animateNum('sec-absent',   total - Math.round(avgPresent));
+        this._setEl('hero-percent',   avgPercent + '%');
+        this._setEl('sec-rate',       avgPercent + '%');
+        this._setEl('sec-rate-sub',   'daily average');
+        this._setEl('sec-absent-sub', 'avg not present');
+        this._setEl('sec-peak-label', 'Best Day');
+        this._setEl('sec-peak',       bestDayLabel);
+
+        const bar = document.getElementById('hero-bar-fill');
+        if (bar) setTimeout(() => { bar.style.width = Math.min(avgPercent, 100) + '%'; }, 120);
+
+        const card = document.getElementById('hero-card');
+        if (card) card.className = 'dashboard-hero-card ' +
+            (avgPercent >= 75 ? 'health-good' : avgPercent >= 50 ? 'health-warn' : 'health-critical');
+
+        const badge = document.getElementById('trend-badge');
+        const tIcon = document.getElementById('trend-icon');
+        const tText = document.getElementById('trend-text');
+        if (badge && tIcon && tText) {
+            if (halfDiff > 0) {
+                badge.className = 'trend-badge trend-up';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-up"></i>';
+                tText.innerText  = `Trending up this ${days === 7 ? 'week' : 'month'}`;
+            } else if (halfDiff < 0) {
+                badge.className = 'trend-badge trend-down';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-down"></i>';
+                tText.innerText  = `Trending down this ${days === 7 ? 'week' : 'month'}`;
+            } else {
+                badge.className = 'trend-badge trend-neutral';
+                tIcon.innerHTML = '<i class="fas fa-minus"></i>';
+                tText.innerText  = 'Stable attendance';
+            }
+        }
+
+        this._setEl('chart-subtitle', `Daily attendance — ${label}`);
+        this._setEl('chart-meta',     totalCheckins + ' total check-ins');
+        this._drawDailyChart(dailyCounts, dates, total);
+
+        // Show today's check-ins in the recent panel
+        const todayRecs = allRecords[0];
+        const sorted = [...todayRecs].sort((a, b) => b.time.localeCompare(a.time));
+        this._renderCheckinList(sorted.slice(0, 10));
+        this._setEl('checkin-count-badge', todayRecs.length);
+
+        // Absent panel not meaningful for multi-day; show info message
+        const absentEl = document.getElementById('absent-list');
+        if (absentEl) absentEl.innerHTML =
+            '<div class="panel-empty"><i class="fas fa-calendar-check"></i> Switch to Today to see absent users</div>';
+        this._setEl('absent-count-badge', '—');
+    },
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    _setEl(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.innerText = text;
+    },
+
+    _animateNum(id, target) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const start = parseInt(el.innerText, 10) || 0;
+        if (start === target) { el.innerText = target; return; }
+        const steps = 16;
+        let step = 0;
+        const timer = setInterval(() => {
+            step++;
+            el.innerText = Math.round(start + (target - start) * (step / steps));
+            if (step >= steps) { el.innerText = target; clearInterval(timer); }
+        }, 28);
+    },
+
+    _fmtHour(h) {
+        if (h === 0)  return '12 am';
+        if (h < 12)   return h + ' am';
+        if (h === 12) return '12 pm';
+        return (h - 12) + ' pm';
+    },
+
+    _renderCheckinList(records) {
+        const el = document.getElementById('checkin-list');
+        if (!el) return;
+        if (!records || records.length === 0) {
+            el.innerHTML = '<div class="panel-empty"><i class="fas fa-clock"></i> No check-ins yet today</div>';
+            return;
+        }
+        el.innerHTML = records.map(r => {
+            const initial = r.name.charAt(0).toUpperCase();
+            return `<div class="checkin-item">
+                <div class="checkin-avatar">${initial}</div>
+                <div class="checkin-info">
+                    <span class="checkin-name">${r.name}</span>
+                    <span class="checkin-time"><i class="fas fa-clock"></i> ${r.time}</span>
+                </div>
+                <span class="checkin-tick"><i class="fas fa-circle-check"></i></span>
+            </div>`;
+        }).join('');
+    },
+
+    _renderAbsentList(users) {
+        const el = document.getElementById('absent-list');
+        if (!el) return;
+        if (!users || users.length === 0) {
+            el.innerHTML = '<div class="panel-empty"><i class="fas fa-circle-check" style="color:var(--success)"></i> All users marked!</div>';
+            return;
+        }
+        el.innerHTML = users.map(u => {
+            const initial = u.name.charAt(0).toUpperCase();
+            return `<div class="absent-item">
+                <div class="absent-avatar">${initial}</div>
+                <div class="absent-info">
+                    <span class="absent-name">${u.name}</span>
+                    <span class="absent-status"><i class="fas fa-circle-xmark"></i> Not marked</span>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    _drawHourlyChart(hourlyData, isEmpty) {
+        const canvas  = document.getElementById('hourly-chart');
+        const emptyEl = document.getElementById('chart-empty');
+        if (!canvas) return;
+
+        if (isEmpty) {
+            canvas.style.display = 'none';
+            if (emptyEl) emptyEl.style.display = 'flex';
+            return;
+        }
+        canvas.style.display = '';
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        const ctx  = canvas.getContext('2d');
+        const dpr  = window.devicePixelRatio || 1;
+        const cW   = canvas.parentElement.offsetWidth || 600;
+        const cH   = 200;
+
+        canvas.width  = cW * dpr;
+        canvas.height = cH * dpr;
+        canvas.style.width  = cW + 'px';
+        canvas.style.height = cH + 'px';
+        ctx.scale(dpr, dpr);
+
+        const W = cW, H = cH;
+        const pad = { top: 28, right: 12, bottom: 40, left: 34 };
+        const chartW = W - pad.left - pad.right;
+        const chartH = H - pad.top - pad.bottom;
+
+        // Show 6 am → 10 pm (17 slots)
+        const hours = Array.from({ length: 17 }, (_, i) => i + 6);
+        const vals  = hours.map(h => hourlyData[h] || 0);
+        const maxV  = Math.max(...vals, 1);
+        const slots = hours.length;
+        const slotW = chartW / slots;
+        const barW  = Math.max(slotW * 0.55, 4);
+
+        ctx.clearRect(0, 0, W, H);
+
+        // Grid lines
+        for (let i = 0; i <= 4; i++) {
+            const y = pad.top + (chartH / 4) * i;
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(pad.left, y);
+            ctx.lineTo(W - pad.right, y);
+            ctx.stroke();
+
+            if (i < 4) {
+                const lv = Math.round(maxV - (maxV / 4) * i);
+                ctx.fillStyle = 'rgba(161,169,181,0.45)';
+                ctx.font = '9px Inter, sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(lv || '', pad.left - 4, y + 3);
+            }
+        }
+
+        // Bars
+        hours.forEach((hour, i) => {
+            const val  = vals[i];
+            const bH   = val > 0 ? Math.max((val / maxV) * chartH, 4) : 2;
+            const x    = pad.left + i * slotW + (slotW - barW) / 2;
+            const y    = pad.top + chartH - bH;
+
+            if (val > 0) {
+                const g = ctx.createLinearGradient(x, y, x, y + bH);
+                g.addColorStop(0, 'rgba(249,115,22,0.95)');
+                g.addColorStop(1, 'rgba(249,115,22,0.3)');
+                ctx.fillStyle = g;
+            } else {
+                ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            }
+
+            this._roundedBar(ctx, x, y, barW, bH, 3);
+
+            if (val > 0) {
+                ctx.fillStyle = 'rgba(255,255,255,0.85)';
+                ctx.font = '9px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(val, x + barW / 2, y - 4);
+            }
+
+            // Hour label — show every other label to avoid crowding
+            if (i % 2 === 0 || slots <= 10) {
+                const lbl = hour === 12 ? '12p' : hour < 12 ? hour + 'a' : (hour - 12) + 'p';
+                ctx.fillStyle = 'rgba(161,169,181,0.6)';
+                ctx.font = '9px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(lbl, x + barW / 2, H - pad.bottom + 14);
+            }
+        });
+    },
+
+    _drawDailyChart(dailyCounts, dates, totalUsers) {
+        const canvas  = document.getElementById('hourly-chart');
+        const emptyEl = document.getElementById('chart-empty');
+        if (!canvas) return;
+
+        const hasData = Object.values(dailyCounts).some(v => v > 0);
+        if (!hasData) {
+            canvas.style.display = 'none';
+            if (emptyEl) emptyEl.style.display = 'flex';
+            return;
+        }
+        canvas.style.display = '';
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const cW  = canvas.parentElement.offsetWidth || 600;
+        const cH  = 200;
+
+        canvas.width  = cW * dpr;
+        canvas.height = cH * dpr;
+        canvas.style.width  = cW + 'px';
+        canvas.style.height = cH + 'px';
+        ctx.scale(dpr, dpr);
+
+        const W = cW, H = cH;
+        const pad = { top: 28, right: 12, bottom: 40, left: 34 };
+        const chartW = W - pad.left - pad.right;
+        const chartH = H - pad.top - pad.bottom;
+
+        const ordered = [...dates].reverse();
+        const vals    = ordered.map(d => dailyCounts[d] || 0);
+        const maxV    = Math.max(...vals, totalUsers > 0 ? totalUsers : 1);
+        const slots   = ordered.length;
+        const slotW   = chartW / slots;
+        const barW    = Math.max(slotW * 0.55, 3);
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        ctx.clearRect(0, 0, W, H);
+
+        // Grid + capacity dashed line
+        for (let i = 0; i <= 4; i++) {
+            const y = pad.top + (chartH / 4) * i;
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+        }
+        if (totalUsers > 0) {
+            const capY = pad.top + chartH - (totalUsers / maxV) * chartH;
+            ctx.strokeStyle = 'rgba(249,115,22,0.3)';
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad.left, capY); ctx.lineTo(W - pad.right, capY); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(249,115,22,0.55)';
+            ctx.font = '8px Inter, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('max', W - pad.right - 2, capY - 3);
+        }
+
+        // Bars
+        ordered.forEach((date, i) => {
+            const val     = vals[i];
+            const bH      = val > 0 ? Math.max((val / maxV) * chartH, 3) : 2;
+            const x       = pad.left + i * slotW + (slotW - barW) / 2;
+            const y       = pad.top + chartH - bH;
+            const isToday = date === todayStr;
+
+            if (val > 0) {
+                const g = ctx.createLinearGradient(x, y, x, y + bH);
+                g.addColorStop(0, isToday ? 'rgba(249,115,22,1)'   : 'rgba(249,115,22,0.7)');
+                g.addColorStop(1, isToday ? 'rgba(249,115,22,0.5)' : 'rgba(249,115,22,0.2)');
+                ctx.fillStyle = g;
+            } else {
+                ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            }
+
+            this._roundedBar(ctx, x, y, barW, bH, 3);
+
+            // Value label — only if few bars
+            if (val > 0 && slots <= 14) {
+                ctx.fillStyle = 'rgba(255,255,255,0.75)';
+                ctx.font = '8px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(val, x + barW / 2, y - 4);
+            }
+
+            // Date label — skip some for month view
+            const showLabel = slots <= 10 || i % 5 === 0 || i === slots - 1 || isToday;
+            if (showLabel) {
+                const d = new Date(date + 'T00:00:00');
+                const lbl = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                ctx.fillStyle = isToday ? 'rgba(249,115,22,0.9)' : 'rgba(161,169,181,0.55)';
+                ctx.font = isToday ? 'bold 8px Inter, sans-serif' : '8px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(lbl, x + barW / 2, H - pad.bottom + 14);
+            }
+        });
+    },
+
+    _roundedBar(ctx, x, y, w, h, r) {
+        if (h <= 0) return;
+        if (h < r * 2) r = h / 2;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        ctx.fill();
+    },
+
+    _flashDashUpdate() {
+        document.querySelectorAll('.mini-stat-card').forEach(c => {
+            c.classList.remove('flash-update');
+            void c.offsetWidth; // reflow to restart animation
+            c.classList.add('flash-update');
+        });
+    },
+
     // Cleanup on page unload
     cleanup() {
         this.stopScanning();

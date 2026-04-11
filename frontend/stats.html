@@ -42,45 +42,167 @@
     </nav>
 
     <main class="container">
-        <div class="page-header">
-            <h2><i class="fas fa-chart-pie"></i> Today's Overview</h2>
-            <p id="stat-date"><i class="fas fa-calendar-alt"></i> Loading…</p>
-        </div>
 
-        <div class="stats-grid">
-            <div class="card stat-card" data-bg="∞">
-                <div class="stat-icon-wrapper">
-                    <span class="stat-icon"><i class="fas fa-users"></i></span>
-                </div>
-                <h3>Total Registered</h3>
-                <p id="stat-total">—</p>
-                <div class="stat-footer">Active users in system</div>
+        <!-- Page header with time range toggle -->
+        <div class="dash-header">
+            <div class="dash-header-left">
+                <h2><i class="fas fa-chart-pie"></i> Attendance Dashboard</h2>
+                <p id="stat-date"><i class="fas fa-calendar-alt"></i> Loading…</p>
             </div>
-            <div class="card stat-card" data-bg="✓">
-                <div class="stat-icon-wrapper">
-                    <span class="stat-icon"><i class="fas fa-user-check"></i></span>
+            <div class="dash-controls">
+                <div class="time-range-toggle">
+                    <button class="time-btn active" data-range="today">Today</button>
+                    <button class="time-btn" data-range="week">This Week</button>
+                    <button class="time-btn" data-range="month">This Month</button>
                 </div>
-                <h3>Present Today</h3>
-                <p id="stat-present">—</p>
-                <div class="stat-footer">Checked in today</div>
-            </div>
-            <div class="card stat-card" data-bg="%">
-                <div class="stat-icon-wrapper">
-                    <span class="stat-icon"><i class="fas fa-chart-simple"></i></span>
-                </div>
-                <h3>Attendance Rate</h3>
-                <p id="stat-percent">—</p>
-                <div class="stat-footer">of total registered</div>
+                <button id="refresh-btn" class="btn btn-secondary btn-sm">
+                    <i class="fas fa-rotate-right" id="refresh-icon"></i> Refresh
+                </button>
             </div>
         </div>
 
+        <!-- Hero metric card -->
+        <div class="dashboard-hero-card health-good" id="hero-card">
+            <div class="hero-content">
+                <div class="hero-left">
+                    <div class="hero-label" id="hero-label">Present Today</div>
+                    <div class="hero-big-number">
+                        <span id="stat-present" class="hero-num">—</span>
+                        <span class="hero-sep">/</span>
+                        <span id="stat-total" class="hero-denom">—</span>
+                    </div>
+                    <div class="trend-badge trend-neutral" id="trend-badge">
+                        <span id="trend-icon"><i class="fas fa-minus"></i></span>
+                        <span id="trend-text">Loading…</span>
+                    </div>
+                </div>
+                <div class="hero-right">
+                    <div class="hero-percent-label">
+                        <span id="hero-rate-label">Attendance Rate</span>
+                        <strong id="hero-percent">—</strong>
+                    </div>
+                    <div class="attendance-bar-track">
+                        <div class="attendance-bar-fill" id="hero-bar-fill" style="width:0%">
+                            <div class="bar-shimmer"></div>
+                        </div>
+                    </div>
+                    <div class="bar-legend">
+                        <span><i class="fas fa-circle present-dot"></i> Present</span>
+                        <span><i class="fas fa-circle absent-dot"></i> Absent</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-glow"></div>
+        </div>
+
+        <!-- Secondary metrics row -->
+        <div class="secondary-stats-row">
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-total">—</div>
+                    <div class="mini-stat-label">Total Registered</div>
+                    <div class="mini-stat-sub">All time</div>
+                </div>
+            </div>
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon orange">
+                    <i class="fas fa-chart-simple"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-rate">—</div>
+                    <div class="mini-stat-label">Attendance Rate</div>
+                    <div class="mini-stat-sub" id="sec-rate-sub">of total registered</div>
+                </div>
+            </div>
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon red">
+                    <i class="fas fa-user-clock"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-absent">—</div>
+                    <div class="mini-stat-label">Not Yet Marked</div>
+                    <div class="mini-stat-sub" id="sec-absent-sub">As of now</div>
+                </div>
+            </div>
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon purple">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-peak">—</div>
+                    <div class="mini-stat-label" id="sec-peak-label">Peak Check-in Hour</div>
+                    <div class="mini-stat-sub">Most active time</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hourly/Daily chart panel -->
+        <div class="chart-panel">
+            <div class="chart-panel-header">
+                <div>
+                    <h4><i class="fas fa-chart-column"></i> Check-in Distribution</h4>
+                    <span class="chart-subtitle" id="chart-subtitle">Check-ins by hour — Today</span>
+                </div>
+                <div class="chart-panel-meta" id="chart-meta">— check-ins</div>
+            </div>
+            <div class="chart-canvas-wrapper">
+                <canvas id="hourly-chart"></canvas>
+                <div id="chart-empty" class="chart-empty" style="display:none">
+                    <i class="fas fa-chart-bar"></i>
+                    <p>No check-in data for this period</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom two-column panels -->
+        <div class="bottom-panels-grid">
+
+            <!-- Recent check-ins -->
+            <div class="bottom-panel card">
+                <div class="bottom-panel-header">
+                    <h4>
+                        <i class="fas fa-circle-check" style="color:var(--success)"></i>
+                        Recent Check-ins
+                    </h4>
+                    <span class="panel-badge" id="checkin-count-badge">0</span>
+                </div>
+                <div id="checkin-list" class="bottom-panel-body">
+                    <div class="panel-empty">
+                        <i class="fas fa-clock"></i> No check-ins yet today
+                    </div>
+                </div>
+            </div>
+
+            <!-- Not yet marked -->
+            <div class="bottom-panel card">
+                <div class="bottom-panel-header">
+                    <h4>
+                        <i class="fas fa-user-clock" style="color:var(--warning)"></i>
+                        Not Yet Marked
+                    </h4>
+                    <span class="panel-badge panel-badge-warn" id="absent-count-badge">0</span>
+                </div>
+                <div id="absent-list" class="bottom-panel-body">
+                    <div class="panel-empty">
+                        <i class="fas fa-circle-check" style="color:var(--success)"></i> All users marked!
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Info panel -->
         <div class="info-panel">
-            <div class="info-panel-icon"><i class="fas fa-chart-line"></i></div>
+            <div class="info-panel-icon"><i class="fas fa-sync-alt"></i></div>
             <div class="info-panel-content">
-                <h4>Real-time Analytics</h4>
-                <p>Data refreshes automatically every 30 seconds. Last updated: <span id="last-updated">—</span></p>
+                <h4>Auto-Refresh Active</h4>
+                <p>Dashboard updates every 30 seconds. Last updated: <span id="last-updated">—</span></p>
             </div>
         </div>
+
     </main>
 
     <footer class="footer">
@@ -93,14 +215,43 @@
     <script src="app.js"></script>
     <script>
         window.addEventListener('load', () => {
-            function updateTimestamp() {
+            // Time range toggle
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    App._statsRange = btn.dataset.range;
+                    App.loadStats();
+                });
+            });
+
+            // Refresh button
+            document.getElementById('refresh-btn').addEventListener('click', () => {
+                const icon = document.getElementById('refresh-icon');
+                if (icon) {
+                    icon.classList.add('fa-spin');
+                    setTimeout(() => icon.classList.remove('fa-spin'), 1000);
+                }
+                App.loadStats();
                 document.getElementById('last-updated').innerText = new Date().toLocaleTimeString();
-            }
+            });
+
+            // Redraw chart on window resize
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => App.loadStats(), 300);
+            });
+
+            // Initial load
+            App._statsRange = 'today';
             App.loadStats();
-            updateTimestamp();
+            document.getElementById('last-updated').innerText = new Date().toLocaleTimeString();
+
+            // Auto-refresh every 30s
             setInterval(() => {
                 App.loadStats();
-                updateTimestamp();
+                document.getElementById('last-updated').innerText = new Date().toLocaleTimeString();
             }, 30000);
         });
     </script>
