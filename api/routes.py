@@ -63,12 +63,15 @@ class AttendanceRecordResponse(BaseModel):
     name: str
     date: str
     time: str
+    checkout_time: Optional[str] = None
 
 
 class StatsTodayResponse(BaseModel):
     date: str
     total_users: int
-    present_users: int
+    present_users: int        # checked in (includes those who have also checked out)
+    currently_present: int    # checked in but NOT yet checked out
+    checked_out_count: int    # checked in AND checked out
     attendance_percent: float
 
 
@@ -522,7 +525,7 @@ def scan_attendance(
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT time FROM attendance WHERE user_id = ? AND date = ?",
+            "SELECT id, time, checkout_time FROM attendance WHERE user_id = ? AND date = ?",
             (matched_id, today),
         )
         existing = cursor.fetchone()
@@ -531,20 +534,50 @@ def scan_attendance(
         raise DatabaseError() from exc
 
     if existing:
+        checkin_time  = existing["time"]
+        checkout_time = existing["checkout_time"]
+
+        # Already both checked in and checked out today
+        if checkout_time is not None:
+            logger.info(
+                "SCAN result=already_marked  user=%s  id=%d  checked_in_at=%s  checked_out_at=%s",
+                matched_name, matched_id, checkin_time, checkout_time,
+            )
+            return ScanAttendanceResponse(
+                status="already_marked",
+                name=matched_name,
+                time=checkin_time,
+                user_id=matched_id,
+                message=f"{matched_name} already completed attendance today (in: {checkin_time}, out: {checkout_time}).",
+                confidence=round(score, 4),
+            )
+
+        # Checked in but not yet checked out — record checkout now
+        now_time = datetime.now().strftime("%H:%M:%S")
+        try:
+            cursor.execute(
+                "UPDATE attendance SET checkout_time = ? WHERE id = ?",
+                (now_time, existing["id"]),
+            )
+            conn.commit()
+        except sqlite3.Error as exc:
+            logger.error("DB error recording checkout: %s", exc)
+            raise DatabaseError("Failed to record checkout") from exc
+
         logger.info(
-            "SCAN result=already_marked  user=%s  id=%d  checked_in_at=%s",
-            matched_name, matched_id, existing["time"],
+            "SCAN result=checked_out  user=%s  id=%d  checked_in_at=%s  checked_out_at=%s  confidence=%.4f",
+            matched_name, matched_id, checkin_time, now_time, score,
         )
         return ScanAttendanceResponse(
-            status="already_marked",
+            status="checked_out",
             name=matched_name,
-            time=existing["time"],
+            time=now_time,
             user_id=matched_id,
-            message=f"{matched_name} already checked in today.",
+            message=f"Goodbye, {matched_name}! Checked out at {now_time}.",
             confidence=round(score, 4),
         )
 
-    # ── 8. Record attendance ──────────────────────────────────────────────────
+    # ── 8. Record check-in ────────────────────────────────────────────────────
     mark_time = datetime.now().strftime("%H:%M:%S")
     try:
         cursor.execute(
@@ -565,7 +598,7 @@ def scan_attendance(
         name=matched_name,
         time=mark_time,
         user_id=matched_id,
-        message=f"Attendance marked for {matched_name}.",
+        message=f"Welcome, {matched_name}! Checked in at {mark_time}.",
         confidence=round(score, 4),
     )
 
@@ -579,7 +612,7 @@ def list_attendance(
         cursor = conn.cursor()
         base_sql = """
             SELECT attendance.id, attendance.user_id, users.name,
-                   attendance.date, attendance.time
+                   attendance.date, attendance.time, attendance.checkout_time
             FROM attendance
             JOIN users ON users.id = attendance.user_id
         """
@@ -603,6 +636,7 @@ def list_attendance(
             name=r["name"],
             date=r["date"],
             time=r["time"],
+            checkout_time=r["checkout_time"],
         )
         for r in rows
     ]
@@ -616,14 +650,27 @@ def get_today_stats(conn=Depends(get_connection)):
         cursor.execute("SELECT COUNT(*) AS total_users FROM users")
         total_users: int = cursor.fetchone()["total_users"]
 
+        # All who checked in (regardless of checkout status)
         cursor.execute(
-            """
-            SELECT COUNT(DISTINCT user_id) AS present_users
-            FROM attendance WHERE date = ?
-            """,
+            "SELECT COUNT(DISTINCT user_id) AS present_users FROM attendance WHERE date = ?",
             (today,),
         )
         present_users: int = cursor.fetchone()["present_users"]
+
+        # Checked in AND already checked out
+        cursor.execute(
+            """
+            SELECT COUNT(DISTINCT user_id) AS checked_out_count
+            FROM attendance
+            WHERE date = ? AND checkout_time IS NOT NULL
+            """,
+            (today,),
+        )
+        checked_out_count: int = cursor.fetchone()["checked_out_count"]
+
+        # Currently on premises (checked in but not yet checked out)
+        currently_present: int = present_users - checked_out_count
+
     except sqlite3.Error as exc:
         logger.error("DB error fetching today stats: %s", exc)
         raise DatabaseError() from exc
@@ -636,6 +683,8 @@ def get_today_stats(conn=Depends(get_connection)):
         date=today,
         total_users=total_users,
         present_users=present_users,
+        currently_present=currently_present,
+        checked_out_count=checked_out_count,
         attendance_percent=attendance_percent,
     )
 
@@ -680,7 +729,9 @@ def get_recent_scan_events():
                 "timestamp": timestamp,
                 "result": result,
                 "user": kv.get("user"),
-                "time": kv.get("checked_in_at") or kv.get("time"),
+                "time": kv.get("checked_in_at") or kv.get("checked_out_at") or kv.get("time"),
+                "checkin_time": kv.get("checked_in_at"),
+                "checkout_time": kv.get("checked_out_at"),
                 "confidence": float(kv["confidence"]) if "confidence" in kv else None,
                 "user_id": int(kv["id"]) if kv.get("id", "").isdigit() else None,
             }

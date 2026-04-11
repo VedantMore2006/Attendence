@@ -184,14 +184,24 @@ const App = {
                 this.showToast(`Welcome, ${event.user}! Marked at ${event.time}`, 'success');
                 break;
 
+            case 'checked_out':
+                cls(card, 'scan-result-card state-checkout');
+                set(icon,   'innerHTML', '<i class="fas fa-right-from-bracket"></i>');
+                set(msg,    'innerText', 'Checked Out');
+                set(detail, 'innerText', `Left at ${event.time}`);
+                if (cameraFrame) cameraFrame.className = 'camera-frame checkout';
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'checked_out');
+                this.showToast(`Goodbye, ${event.user}! Checked out at ${event.time}`, 'info');
+                break;
+
             case 'already_marked':
                 cls(card, 'scan-result-card state-warning');
                 set(icon,   'innerText', '✓');
-                set(msg,    'innerText', 'Already Checked In');
-                set(detail, 'innerText', `First checked in at ${event.time}`);
+                set(msg,    'innerText', 'Already Completed');
+                set(detail, 'innerText', `Already checked in & out today`);
                 if (cameraFrame) cameraFrame.className = 'camera-frame warning';
                 this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'already_marked');
-                this.showToast(`${event.user} — already marked at ${event.time}`, 'warning');
+                this.showToast(`${event.user} — attendance already complete today`, 'warning');
                 break;
 
             case 'no_match':
@@ -232,11 +242,12 @@ const App = {
             return;
         }
         container.innerHTML = events.map(e => {
-            const iconMap  = { marked: '✓', already_marked: '✓', no_match: '?', no_face: '○' };
-            const clsMap   = { marked: 'log-success', already_marked: 'log-warning', no_match: 'log-error', no_face: 'log-muted' };
+            const iconMap  = { marked: '✓', checked_out: '⇤', already_marked: '✓', no_match: '?', no_face: '○' };
+            const clsMap   = { marked: 'log-success', checked_out: 'log-checkout', already_marked: 'log-warning', no_match: 'log-error', no_face: 'log-muted' };
             const labelMap = {
-                marked:         e.user ? `${e.user} — checked in at ${e.time}` : 'Marked',
-                already_marked: e.user ? `${e.user} — already in at ${e.time}` : 'Already marked',
+                marked:         e.user ? `${e.user} — in at ${e.time}` : 'Marked',
+                checked_out:    e.user ? `${e.user} — out at ${e.time}` : 'Checked out',
+                already_marked: e.user ? `${e.user} — already complete` : 'Already marked',
                 no_match:       'Unknown face scanned',
                 no_face:        'No face detected',
             };
@@ -258,7 +269,9 @@ const App = {
         if (!container || !name) return;
         const initial   = name.charAt(0).toUpperCase();
         const confPct   = confidence != null ? (confidence * 100).toFixed(1) : null;
-        const timeLabel = status === 'marked' ? `Just checked in at ${time}` : `Checked in at ${time}`;
+        const timeLabel = status === 'marked'      ? `Just checked in at ${time}` :
+                          status === 'checked_out' ? `Checked out at ${time}` :
+                                                     `Checked in at ${time}`;
         container.innerHTML = `
             <div class="user-recognized">
                 <div class="user-avatar-large">${initial}</div>
@@ -455,27 +468,28 @@ const App = {
             API.getAttendance(yesterday),
         ]);
 
-        const present = stats.present_users;
-        const total   = stats.total_users;
-        const percent = stats.attendance_percent;
-        const yPresent = new Set(yesterdayRecs.map(r => r.user_id)).size;
-        const diff = present - yPresent;
+        const present          = stats.present_users;
+        const currentlyPresent = stats.currently_present ?? present;
+        const checkedOut       = stats.checked_out_count  ?? 0;
+        const total            = stats.total_users;
+        const percent          = stats.attendance_percent;
+        const yPresent         = new Set(yesterdayRecs.map(r => r.user_id)).size;
+        const diff             = present - yPresent;
 
         // Date label
         this._setEl('stat-date', new Date().toLocaleDateString('en-US', {
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         }));
-        this._setEl('hero-label', 'Present Today');
+        this._setEl('hero-label', 'Arrived Today (Check-ins)');
 
         // Hero big numbers
         this._animateNum('stat-present', present);
         this._animateNum('stat-total',   total);
-        this._animateNum('sec-total',    total);
-        this._animateNum('sec-absent',   total - present);
+        this._animateNum('sec-currently', currentlyPresent);
+        this._animateNum('sec-checkout',  checkedOut);
+        this._animateNum('sec-absent',    total - present);
         this._setEl('hero-percent', percent + '%');
-        this._setEl('sec-rate',     percent + '%');
-        this._setEl('sec-rate-sub', 'of total registered');
-        this._setEl('sec-absent-sub', 'As of now');
+        this._setEl('sec-absent-sub', 'Not arrived yet');
         this._setEl('sec-peak-label', 'Peak Check-in Hour');
 
         // Progress bar
@@ -575,16 +589,15 @@ const App = {
         this._setEl('stat-date', `${label} — ${dates[dates.length - 1]} → ${dates[0]}`);
         this._setEl('hero-label', `Avg Present / Day`);
 
-        this._animateNum('stat-present', Math.round(avgPresent));
-        this._animateNum('stat-total',   total);
-        this._animateNum('sec-total',    total);
-        this._animateNum('sec-absent',   total - Math.round(avgPresent));
-        this._setEl('hero-percent',   avgPercent + '%');
-        this._setEl('sec-rate',       avgPercent + '%');
-        this._setEl('sec-rate-sub',   'daily average');
-        this._setEl('sec-absent-sub', 'avg not present');
-        this._setEl('sec-peak-label', 'Best Day');
-        this._setEl('sec-peak',       bestDayLabel);
+        this._animateNum('stat-present',   Math.round(avgPresent));
+        this._animateNum('stat-total',     total);
+        this._animateNum('sec-currently',  Math.round(avgPresent));
+        this._animateNum('sec-checkout',   0);   // not tracked in multi-day view
+        this._animateNum('sec-absent',     total - Math.round(avgPresent));
+        this._setEl('hero-percent',    avgPercent + '%');
+        this._setEl('sec-absent-sub',  'avg not present');
+        this._setEl('sec-peak-label',  'Best Day');
+        this._setEl('sec-peak',        bestDayLabel);
 
         const bar = document.getElementById('hero-bar-fill');
         if (bar) setTimeout(() => { bar.style.width = Math.min(avgPercent, 100) + '%'; }, 120);

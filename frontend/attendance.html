@@ -66,12 +66,14 @@
                             <th><i class="fas fa-hashtag"></i> User ID</th>
                             <th><i class="fas fa-user"></i> Name</th>
                             <th><i class="fas fa-calendar-day"></i> Date</th>
-                            <th><i class="fas fa-clock"></i> Time</th>
+                            <th><i class="fas fa-right-to-bracket"></i> Check-in</th>
+                            <th><i class="fas fa-right-from-bracket"></i> Check-out</th>
+                            <th><i class="fas fa-hourglass-half"></i> Duration</th>
                         </tr>
                     </thead>
                     <tbody id="attendance-body">
                         <tr>
-                            <td colspan="4">
+                            <td colspan="6">
                                 <div class="spinner"></div> Loading…
                             </td>
                         </tr>
@@ -103,17 +105,34 @@
                     tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading…</td></tr>';
                     const data = await API.getAttendance(dateFilter.value);
                     if (data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)"><i class="fas fa-inbox"></i> No records for this date</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)"><i class="fas fa-inbox"></i> No records for this date</td></tr>';
                         document.getElementById('record-count').innerText = '0';
                         return;
                     }
                     document.getElementById('record-count').innerText = data.length;
+
+                    function calcDuration(inTime, outTime) {
+                        if (!outTime) return '<span style="color:var(--warning);font-size:0.75rem"><i class="fas fa-circle-dot"></i> Still inside</span>';
+                        const [ih, im, is_] = inTime.split(':').map(Number);
+                        const [oh, om, os_] = outTime.split(':').map(Number);
+                        const diffSec = (oh * 3600 + om * 60 + os_) - (ih * 3600 + im * 60 + is_);
+                        if (diffSec <= 0) return '—';
+                        const h = Math.floor(diffSec / 3600);
+                        const m = Math.floor((diffSec % 3600) / 60);
+                        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                    }
+
                     tbody.innerHTML = data.map(row => `
                         <tr>
                             <td><span class="user-id-badge">#${row.user_id}</span></td>
                             <td><strong><i class="fas fa-user-circle"></i> ${row.name}</strong></td>
                             <td><i class="fas fa-calendar-alt"></i> ${row.date}</td>
-                            <td><i class="fas fa-clock"></i> ${row.time}</td>
+                            <td><span class="time-badge checkin-badge"><i class="fas fa-right-to-bracket"></i> ${row.time}</span></td>
+                            <td>${row.checkout_time
+                                ? `<span class="time-badge checkout-badge"><i class="fas fa-right-from-bracket"></i> ${row.checkout_time}</span>`
+                                : `<span style="color:var(--text-muted);font-size:0.8rem">—</span>`
+                            }</td>
+                            <td>${calcDuration(row.time, row.checkout_time)}</td>
                         </tr>
                     `).join('');
                 });

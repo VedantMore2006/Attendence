@@ -34,9 +34,17 @@ class FaceDatabase:
 			user_id INTEGER,
 			date TEXT,
 			time TEXT,
+			checkout_time TEXT,
 			FOREIGN KEY(user_id) REFERENCES users(id)
 		)
 		""")
+
+		# Migration: add checkout_time to existing databases that predate this column
+		try:
+			cursor.execute("ALTER TABLE attendance ADD COLUMN checkout_time TEXT")
+			self.conn.commit()
+		except Exception:
+			pass  # Column already exists — safe to ignore
 
 		self.conn.commit()
 

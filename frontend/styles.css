@@ -2651,3 +2651,47 @@ tbody tr:hover {
         grid-template-columns: 1fr;
     }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Check-out — Scan page states & attendance table badges
+───────────────────────────────────────────────────────────────────────────── */
+
+/* Scan result card — checkout state */
+.scan-result-card.state-checkout {
+    border-color: rgba(102, 126, 234, 0.5);
+    background: rgba(102, 126, 234, 0.08);
+}
+
+/* Camera frame — checkout accent */
+.camera-frame.checkout .face-target-ring {
+    border-color: rgba(102, 126, 234, 0.6);
+    box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+}
+
+/* Log panel — checkout entry */
+.log-entry.log-checkout .log-icon {
+    color: #818cf8;
+}
+
+/* Attendance table — time badges */
+.time-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.4rem;
+}
+
+.checkin-badge {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.checkout-badge {
+    background: rgba(102, 126, 234, 0.1);
+    color: #818cf8;
+    border: 1px solid rgba(102, 126, 234, 0.25);
+}
