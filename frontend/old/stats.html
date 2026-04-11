@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats | SAS - Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SAS<span>.</span></a>
+            <ul class="nav-links">
+                <li><a href="scan.html">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html" class="active">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="page-header">
+            <h2>Today's Overview</h2>
+            <p id="stat-date">Loading…</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="card stat-card" data-bg="∞">
+                <span class="stat-icon">👥</span>
+                <h3>Total Registered</h3>
+                <p id="stat-total">—</p>
+            </div>
+            <div class="card stat-card" data-bg="✓">
+                <span class="stat-icon">✅</span>
+                <h3>Present Today</h3>
+                <p id="stat-present">—</p>
+            </div>
+            <div class="card stat-card" data-bg="%">
+                <span class="stat-icon">📊</span>
+                <h3>Attendance Rate</h3>
+                <p id="stat-percent">—</p>
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadStats();
+            setInterval(() => App.loadStats(), 30000);
+        });
+    </script>
+</body>
+</html>

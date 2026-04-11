@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Face | SAS - Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">SAS<span>.</span></a>
+            <ul class="nav-links">
+                <li><a href="scan.html" class="active">Scan Face</a></li>
+                <li><a href="register.html">Register</a></li>
+                <li><a href="attendance.html">Records</a></li>
+                <li><a href="stats.html">Stats</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <main class="container scan-page-container">
+        <!-- Decorative page heading -->
+        <div class="scan-page-label">
+            <div>
+                <h2>Face Scan</h2>
+                <p>Position your face inside the oval, then press Scan</p>
+            </div>
+        </div>
+
+        <div class="scan-layout">
+
+            <!-- ── Left: Camera ── -->
+            <div class="camera-col">
+                <div class="camera-frame" id="camera-frame">
+                    <video id="webcam" autoplay playsinline></video>
+                    <div class="scan-corners">
+                        <span class="sc tl"></span>
+                        <span class="sc tr"></span>
+                        <span class="sc bl"></span>
+                        <span class="sc br"></span>
+                    </div>
+                    <div class="face-target-ring"></div>
+                    <div class="scan-sweep" id="scan-sweep"></div>
+                    <div class="live-badge">
+                        <span class="live-pulse"></span>
+                        LIVE
+                    </div>
+                </div>
+                <div class="scan-btn-row">
+                    <button id="scan-btn" class="btn btn-primary btn-scan-face" disabled>
+                        Starting camera…
+                    </button>
+                </div>
+                <p class="camera-caption">Keep your face inside the oval, then press Scan</p>
+            </div>
+
+            <!-- ── Right: Status + Log ── -->
+            <div class="info-col">
+
+                <div class="scan-result-card state-init" id="scan-result-card">
+                    <div class="result-icon" id="result-icon">◎</div>
+                    <h2 id="status-message">Ready</h2>
+                    <p id="status-detail">Camera initializing — please wait</p>
+                </div>
+
+                <div id="recognized-user"></div>
+
+                <!-- Recent activity from log -->
+                <div class="log-panel">
+                    <div class="log-panel-header">
+                        <h4>Recent Activity</h4>
+                        <button id="log-refresh-btn" class="btn-icon" title="Refresh">↻</button>
+                    </div>
+                    <div id="log-entries">
+                        <p class="log-empty">No recent activity</p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => App.initScanPage());
+        window.addEventListener('beforeunload', () => App.stopWebcam());
+    </script>
+</body>
+</html>
