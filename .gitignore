@@ -5,3 +5,7 @@ venv/
 attendance.db
 *.zip
 *.log
+.calude/
+.github/
+logs/
+.vscode/
