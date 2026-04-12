@@ -1,11 +1,12 @@
+# Strict Python cache ignore rules
+# Ignore __pycache__ directories at any depth
 __pycache__/
+**/__pycache__/
+
+# Ignore Python bytecode/cache files
 *.pyc
-.env
-venv/
-attendance.db
-*.zip
-*.log
-.calude/
-.github/
-logs/
-.vscode/
+*.pyo
+*.pyd
+*$py.class
+
+*.db
