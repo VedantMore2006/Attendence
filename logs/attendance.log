@@ -469,3 +469,64 @@
 2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 6: loaded 3 users, 15 total embeddings
 2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=VEDANT  score=0.7692  threshold=0.55
 2026-04-12 00:44:21 | INFO     | api.routes | SCAN result=marked  user=VEDANT  id=1  time=00:44:21  confidence=0.7692
+2026-04-12 14:38:43 | INFO     | api.server | ============================================================
+2026-04-12 14:38:43 | INFO     | api.server | Smart Attendance API — session start
+2026-04-12 14:38:43 | INFO     | api.server | ============================================================
+2026-04-12 14:38:43 | INFO     | api.server | Initialising database schema...
+2026-04-12 14:38:43 | INFO     | api.server | Database ready
+2026-04-12 14:38:43 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-12 14:38:44 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/lib/python3.13/site-packages/matplotlib/mpl-data
+2026-04-12 14:38:44 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-12 14:38:44 | DEBUG    | matplotlib | interactive is False
+2026-04-12 14:38:44 | DEBUG    | matplotlib | platform is linux
+2026-04-12 14:38:44 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-12 14:38:44 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-12 14:38:44 | ERROR    | api.server | Vision pipeline failed to load: No module named 'insightface'  |  Face-scan endpoints will return 503 until this is fixed.
+2026-04-12 14:39:16 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-12 14:39:18 | INFO     | api.server | ============================================================
+2026-04-12 14:39:18 | INFO     | api.server | Smart Attendance API — session start
+2026-04-12 14:39:18 | INFO     | api.server | ============================================================
+2026-04-12 14:39:18 | INFO     | api.server | Initialising database schema...
+2026-04-12 14:39:18 | INFO     | api.server | Database ready
+2026-04-12 14:39:18 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-12 14:39:18 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/lib/python3.13/site-packages/matplotlib/mpl-data
+2026-04-12 14:39:18 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-12 14:39:18 | DEBUG    | matplotlib | interactive is False
+2026-04-12 14:39:18 | DEBUG    | matplotlib | platform is linux
+2026-04-12 14:39:18 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-12 14:39:18 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-12 14:39:18 | ERROR    | api.server | Vision pipeline failed to load: No module named 'insightface'  |  Face-scan endpoints will return 503 until this is fixed.
+2026-04-12 14:39:38 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-12 14:39:41 | INFO     | api.server | ============================================================
+2026-04-12 14:39:41 | INFO     | api.server | Smart Attendance API — session start
+2026-04-12 14:39:41 | INFO     | api.server | ============================================================
+2026-04-12 14:39:41 | INFO     | api.server | Initialising database schema...
+2026-04-12 14:39:41 | INFO     | api.server | Database ready
+2026-04-12 14:39:41 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-12 14:39:41 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/lib/python3.13/site-packages/matplotlib/mpl-data
+2026-04-12 14:39:41 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-12 14:39:41 | DEBUG    | matplotlib | interactive is False
+2026-04-12 14:39:41 | DEBUG    | matplotlib | platform is linux
+2026-04-12 14:39:41 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-12 14:39:41 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-12 14:39:42 | ERROR    | api.server | Vision pipeline failed to load: No module named 'insightface'  |  Face-scan endpoints will return 503 until this is fixed.
+2026-04-12 14:40:32 | WARNING  | api.routes | Images provided for user 1 but model is not ready — skipping
+2026-04-12 14:40:43 | WARNING  | api.errors | AppError [ModelNotReadyError] on /api/attendance/scan: Face recognition model is not available. The server may still be loading or the model failed to initialise.
+2026-04-12 14:41:03 | WARNING  | api.errors | AppError [ModelNotReadyError] on /api/attendance/scan: Face recognition model is not available. The server may still be loading or the model failed to initialise.
+2026-04-12 14:41:07 | WARNING  | api.errors | AppError [ModelNotReadyError] on /api/attendance/scan: Face recognition model is not available. The server may still be loading or the model failed to initialise.
+2026-04-12 14:41:20 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-12 14:41:24 | INFO     | api.server | ============================================================
+2026-04-12 14:41:24 | INFO     | api.server | Smart Attendance API — session start
+2026-04-12 14:41:24 | INFO     | api.server | ============================================================
+2026-04-12 14:41:24 | INFO     | api.server | Initialising database schema...
+2026-04-12 14:41:24 | INFO     | api.server | Database ready
+2026-04-12 14:41:24 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-12 14:41:25 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/lib/python3.13/site-packages/matplotlib/mpl-data
+2026-04-12 14:41:25 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-12 14:41:25 | DEBUG    | matplotlib | interactive is False
+2026-04-12 14:41:25 | DEBUG    | matplotlib | platform is linux
+2026-04-12 14:41:25 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-12 14:41:25 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-12 14:41:25 | ERROR    | api.server | Vision pipeline failed to load: No module named 'insightface'  |  Face-scan endpoints will return 503 until this is fixed.
+2026-04-12 14:42:37 | WARNING  | api.errors | AppError [ModelNotReadyError] on /api/attendance/scan: Face recognition model is not available. The server may still be loading or the model failed to initialise.
+2026-04-12 14:42:39 | WARNING  | api.errors | AppError [ModelNotReadyError] on /api/attendance/scan: Face recognition model is not available. The server may still be loading or the model failed to initialise.
