@@ -12,8 +12,6 @@ Watch the system flow directly from this repository:
   Your browser does not support embedded video playback.
 </video>
 
-Fallback link: [Open demo.mp4](./demo.mp4)
-
 ## Why It Matters
 
 Traditional attendance methods authenticate tokens (card, PIN, phone), not the actual person. This project authenticates the person directly using face embeddings, reducing proxy attendance and manual overhead.
