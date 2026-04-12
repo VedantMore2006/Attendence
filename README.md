@@ -8,7 +8,7 @@ Smart Attendance System (SAS) replaces manual registers, cards, and PIN terminal
 
 Watch the system flow directly from this repository:
 
-<video src="./demo.mp4" controls width="920">
+<video src="demo.mp4" controls width="920">
   Your browser does not support embedded video playback.
 </video>
 
