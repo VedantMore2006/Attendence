@@ -445,3 +445,27 @@
 2026-04-11 23:37:26 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=VEDANT  score=0.6659  threshold=0.55
 2026-04-11 23:37:26 | INFO     | api.routes | SCAN result=already_marked  user=VEDANT  id=1  checked_in_at=15:55:24
 2026-04-11 23:38:21 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-12 00:43:49 | INFO     | api.server | ============================================================
+2026-04-12 00:43:49 | INFO     | api.server | Smart Attendance API — session start
+2026-04-12 00:43:49 | INFO     | api.server | ============================================================
+2026-04-12 00:43:49 | INFO     | api.server | Initialising database schema...
+2026-04-12 00:43:49 | INFO     | api.server | Database ready
+2026-04-12 00:43:49 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-12 00:43:50 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-12 00:43:50 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-12 00:43:50 | DEBUG    | matplotlib | interactive is False
+2026-04-12 00:43:50 | DEBUG    | matplotlib | platform is linux
+2026-04-12 00:43:50 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-12 00:43:50 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-12 00:44:00 | INFO     | api.server | FaceDetector ready
+2026-04-12 00:44:00 | INFO     | api.server | FaceAligner ready
+2026-04-12 00:44:02 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 4: aligning face box=[243, 218, 417, 392]
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 6: loaded 3 users, 15 total embeddings
+2026-04-12 00:44:21 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=VEDANT  score=0.7692  threshold=0.55
+2026-04-12 00:44:21 | INFO     | api.routes | SCAN result=marked  user=VEDANT  id=1  time=00:44:21  confidence=0.7692
