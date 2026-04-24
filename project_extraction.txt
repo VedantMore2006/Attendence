@@ -1,0 +1,6409 @@
+================================================================================
+PROJECT EXTRACTION REPORT
+================================================================================
+
+PROJECT STRUCTURE:
+--------------------------------------------------------------------------------
+
+Attendence/
+├── 2026-04-12_17-11-58.png
+├── 9.mp4
+├── README.md
+├── attendance.db
+├── project_extraction.txt
+├── requirements.txt
+├── api/
+│   ├── errors.py
+│   ├── routes.py
+│   └── server.py
+├── attendance/
+│   └── attendance_service.py
+├── database/
+│   └── models.py
+├── docs/
+│   ├── GLOSSARY.md
+│   ├── IMPLEMENTATION_SUMMARY.md
+│   ├── REPORT_SOURCE.md
+│   ├── SYSTEM_DESIGN.md
+│   ├── database_cheatsheet.md
+│   ├── implementation.txt
+│   ├── project_extract.py
+│   └── project_extraction.txt
+├── frontend/
+│   ├── api.js
+│   ├── app.js
+│   ├── attendance.html
+│   ├── index.html
+│   ├── register.html
+│   ├── scan.html
+│   ├── stats.html
+│   └── styles.css
+├── logs/
+│   └── attendance.log
+└── vision/
+    ├── aligner.py
+    ├── detector.py
+    └── embedder.py
+
+
+================================================================================
+FILE CONTENTS
+================================================================================
+
+
+================================================================================
+FILE: api/errors.py
+================================================================================
+
+import logging
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
+
+
+# ── Base ─────────────────────────────────────────────────────────────────────
+
+
+class AppError(Exception):
+    """Base class for all application-level errors."""
+
+    status_code: int = 500
+    default_message: str = "An unexpected error occurred"
+
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or self.default_message
+        super().__init__(self.message)
+
+
+# ── Image / vision errors ─────────────────────────────────────────────────────
+
+
+class ImageDecodeError(AppError):
+    status_code = 400
+    default_message = "Could not decode the provided image"
+
+
+class ModelNotReadyError(AppError):
+    status_code = 503
+    default_message = (
+        "Face recognition model is not available. "
+        "The server may still be loading or the model failed to initialise."
+    )
+
+
+class EmbeddingError(AppError):
+    status_code = 422
+    default_message = "Could not extract face embedding from the image"
+
+
+# ── Database errors ───────────────────────────────────────────────────────────
+
+
+class DatabaseError(AppError):
+    status_code = 500
+    default_message = "A database error occurred"
+
+
+# ── FastAPI exception handlers ────────────────────────────────────────────────
+
+
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    """Handler for all known AppError subclasses."""
+    logger.warning(
+        "AppError [%s] on %s: %s",
+        type(exc).__name__,
+        request.url.path,
+        exc.message,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.message,
+            "type": type(exc).__name__,
+        },
+    )
+
+
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all handler so unhandled exceptions never expose stack traces."""
+    logger.exception(
+        "Unhandled exception on %s: %s",
+        request.url.path,
+        exc,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "type": "InternalError",
+        },
+    )
+
+
+================================================================================
+FILE: api/routes.py
+================================================================================
+
+import base64
+import logging
+import os
+import re
+import sqlite3
+from datetime import datetime
+from typing import Optional
+
+import cv2
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
+
+from api.errors import (
+    DatabaseError,
+    EmbeddingError,
+    ImageDecodeError,
+    ModelNotReadyError,
+)
+from attendance.attendance_service import AttendanceService
+from database.models import FaceDatabase
+
+logger = logging.getLogger(__name__)
+
+DB_PATH = "attendance.db"
+MATCH_THRESHOLD = 0.55
+
+router = APIRouter(tags=["attendance"])
+
+
+# ── Pydantic models ───────────────────────────────────────────────────────────
+
+
+class CreateUserRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    images: list[str] = Field(
+        default_factory=list,
+        description="Base64-encoded JPEG face images captured during registration",
+    )
+
+
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+
+
+class CreateUserResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    embeddings_stored: int
+    embeddings_failed: int
+
+
+class MarkAttendanceRequest(BaseModel):
+    user_id: int
+
+
+class AttendanceRecordResponse(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    date: str
+    time: str
+    checkout_time: Optional[str] = None
+
+
+class StatsTodayResponse(BaseModel):
+    date: str
+    total_users: int
+    present_users: int        # checked in (includes those who have also checked out)
+    currently_present: int    # checked in but NOT yet checked out
+    checked_out_count: int    # checked in AND checked out
+    attendance_percent: float
+
+
+class ScanAttendanceRequest(BaseModel):
+    image: str = Field(
+        ...,
+        description="Base64-encoded JPEG frame (data-URI prefix is stripped automatically)",
+    )
+
+
+class ScanAttendanceResponse(BaseModel):
+    status: str  # marked | already_marked | no_face | no_match
+    message: str = ""
+    name: Optional[str] = None
+    time: Optional[str] = None
+    user_id: Optional[int] = None
+    confidence: Optional[float] = None
+
+
+# ── DB dependency ─────────────────────────────────────────────────────────────
+
+
+def get_connection():
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def init_database() -> None:
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    try:
+        FaceDatabase(conn)
+    finally:
+        conn.close()
+
+
+# ── Image / vision helpers ────────────────────────────────────────────────────
+
+
+def decode_base64_image(b64_str: str) -> np.ndarray:
+    """
+    Decode a base64 string (with or without a data-URI prefix) into an
+    OpenCV BGR ndarray.
+
+    Raises ImageDecodeError on any failure so callers never see raw exceptions.
+    """
+    if not b64_str or not b64_str.strip():
+        raise ImageDecodeError("Image data is empty")
+
+    # Strip "data:image/...;base64," prefix if present
+    if "," in b64_str:
+        b64_str = b64_str.split(",", 1)[1]
+
+    b64_str = b64_str.strip()
+
+    try:
+        raw_bytes = base64.b64decode(b64_str, validate=True)
+    except Exception as exc:
+        raise ImageDecodeError(f"Base64 decoding failed: {exc}") from exc
+
+    if len(raw_bytes) == 0:
+        raise ImageDecodeError("Decoded image data is empty")
+
+    np_arr = np.frombuffer(raw_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    if frame is None:
+        raise ImageDecodeError(
+            "Could not decode image — unsupported format or corrupt data"
+        )
+
+    h, w = frame.shape[:2]
+    if h < 10 or w < 10:
+        raise ImageDecodeError(
+            f"Image is too small to process ({w}x{h} px)"
+        )
+
+    return frame
+
+
+def _pick_largest_box(boxes: list[list[int]]) -> list[int]:
+    """Return the bounding box with the largest area."""
+    return max(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]))
+
+
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))
+
+
+def _match_embedding(
+    query: np.ndarray,
+    face_data: dict,
+) -> tuple[Optional[int], Optional[str], float]:
+    """
+    Compare query embedding against all stored embeddings.
+
+    Returns (best_user_id, best_name, best_score).
+    Returns (None, None, best_score) when no user clears MATCH_THRESHOLD.
+    """
+    best_id: Optional[int] = None
+    best_name: Optional[str] = None
+    best_score: float = -1.0
+
+    for user_id, data in face_data.items():
+        for stored_emb in data["embeddings"]:
+            score = _cosine_similarity(query, stored_emb)
+            if score > best_score:
+                best_score = score
+                best_id = user_id
+                best_name = data["name"]
+
+    if best_score >= MATCH_THRESHOLD:
+        return best_id, best_name, best_score
+
+    return None, None, best_score
+
+
+def _extract_embedding_from_frame(
+    frame: np.ndarray,
+    request: Request,
+) -> Optional[np.ndarray]:
+    """
+    Run the full detect → align → embed pipeline on a single frame.
+
+    Returns the embedding ndarray, or None if no usable face was found.
+    Raises EmbeddingError on pipeline failures (not "no face" cases).
+    """
+    detector = request.app.state.detector
+    aligner = request.app.state.aligner
+    embedder = request.app.state.embedder
+
+    try:
+        boxes = detector.detect_faces(frame)
+    except Exception as exc:
+        logger.error("Face detection error: %s", exc)
+        raise EmbeddingError("Face detection failed internally") from exc
+
+    if not boxes:
+        return None
+
+    box = _pick_largest_box(boxes)
+
+    try:
+        face = aligner.align_face(frame, box)
+    except Exception as exc:
+        logger.error("Face alignment error: %s", exc)
+        return None  # non-fatal — alignment is best-effort
+
+    if face is None:
+        return None
+
+    try:
+        embedding = embedder.get_embedding(face)
+    except Exception as exc:
+        logger.error("Embedding extraction error: %s", exc)
+        raise EmbeddingError(f"Embedding extraction failed: {exc}") from exc
+
+    return embedding  # may still be None if embedder returns None
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/health")
+def health(request: Request) -> dict:
+    model_ready: bool = getattr(request.app.state, "model_ready", False)
+    return {
+        "status": "ok",
+        "service": "smart-attendance-api",
+        "model_ready": model_ready,
+    }
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+
+@router.post("/users", response_model=CreateUserResponse, status_code=201)
+def create_user(
+    payload: CreateUserRequest,
+    request: Request,
+    conn=Depends(get_connection),
+):
+    """
+    Create a new user and optionally store face embeddings from the provided
+    base64 images.  The user record is always created; embedding failures are
+    reported in the response rather than rolling back the user.
+    """
+    cleaned_name = payload.name.strip()
+    if not cleaned_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+
+    face_db = FaceDatabase(conn)
+
+    try:
+        user_id = face_db.add_user(cleaned_name)
+    except sqlite3.Error as exc:
+        logger.error("DB error creating user: %s", exc)
+        raise DatabaseError(f"Failed to create user: {exc}") from exc
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name, created_at FROM users WHERE id = ?", (user_id,)
+        )
+        row = cursor.fetchone()
+    except sqlite3.Error as exc:
+        logger.error("DB error reading new user row: %s", exc)
+        raise DatabaseError() from exc
+
+    embeddings_stored = 0
+    embeddings_failed = 0
+
+    if payload.images:
+        model_ready: bool = getattr(request.app.state, "model_ready", False)
+        if not model_ready:
+            logger.warning(
+                "Images provided for user %d but model is not ready — skipping", user_id
+            )
+            embeddings_failed = len(payload.images)
+        else:
+            for idx, img_b64 in enumerate(payload.images):
+                try:
+                    frame = decode_base64_image(img_b64)
+                    embedding = _extract_embedding_from_frame(frame, request)
+                    if embedding is None:
+                        logger.debug("Image %d: no face detected, skipping", idx)
+                        embeddings_failed += 1
+                        continue
+                    face_db.add_embedding(user_id, embedding)
+                    embeddings_stored += 1
+                except (ImageDecodeError, EmbeddingError) as exc:
+                    logger.warning("Image %d: %s", idx, exc.message)
+                    embeddings_failed += 1
+                except sqlite3.Error as exc:
+                    logger.error("DB error storing embedding %d: %s", idx, exc)
+                    embeddings_failed += 1
+                except Exception as exc:
+                    logger.error("Unexpected error on image %d: %s", idx, exc)
+                    embeddings_failed += 1
+
+    return CreateUserResponse(
+        id=row["id"],
+        name=row["name"],
+        created_at=row["created_at"],
+        embeddings_stored=embeddings_stored,
+        embeddings_failed=embeddings_failed,
+    )
+
+
+@router.get("/users", response_model=list[UserResponse])
+def list_users(conn=Depends(get_connection)):
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name, created_at FROM users ORDER BY id DESC"
+        )
+        rows = cursor.fetchall()
+    except sqlite3.Error as exc:
+        logger.error("DB error listing users: %s", exc)
+        raise DatabaseError() from exc
+
+    return [
+        UserResponse(id=r["id"], name=r["name"], created_at=r["created_at"])
+        for r in rows
+    ]
+
+
+@router.delete("/users/{user_id}", status_code=204)
+def delete_user(user_id: int, conn=Depends(get_connection)):
+    """
+    Delete a user and cascade-delete associated embeddings and attendance records.
+    Returns 204 No Content on success.
+    """
+    try:
+        cursor = conn.cursor()
+
+        # Check user exists
+        cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Cascade delete: embeddings → attendance → user
+        cursor.execute("DELETE FROM face_embeddings WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM attendance WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+        conn.commit()
+        logger.info("DELETE user: id=%d", user_id)
+
+    except HTTPException:
+        raise
+    except sqlite3.Error as exc:
+        logger.error("DB error deleting user %d: %s", user_id, exc)
+        raise DatabaseError("Failed to delete user") from exc
+
+
+# ── Attendance ────────────────────────────────────────────────────────────────
+
+
+@router.post("/attendance/mark")
+def mark_attendance(
+    payload: MarkAttendanceRequest, conn=Depends(get_connection)
+):
+    """Manual attendance mark by user_id (used internally / testing)."""
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name FROM users WHERE id = ?", (payload.user_id,))
+        user_row = cursor.fetchone()
+    except sqlite3.Error as exc:
+        logger.error("DB error looking up user %d: %s", payload.user_id, exc)
+        raise DatabaseError() from exc
+
+    if user_row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        attendance_service = AttendanceService(conn)
+        marked = attendance_service.mark_attendance(payload.user_id)
+    except sqlite3.Error as exc:
+        logger.error("DB error marking attendance: %s", exc)
+        raise DatabaseError() from exc
+
+    today = datetime.now().date().isoformat()
+    base = {"user_id": payload.user_id, "name": user_row["name"], "date": today}
+
+    if not marked:
+        return {"status": "already_marked", **base}
+
+    return {"status": "marked", **base}
+
+
+@router.post("/attendance/scan", response_model=ScanAttendanceResponse)
+def scan_attendance(
+    payload: ScanAttendanceRequest,
+    request: Request,
+    conn=Depends(get_connection),
+):
+    """
+    Face-scan endpoint.  Accepts a base64 webcam frame, runs the full
+    detect → align → embed → match pipeline, then records attendance.
+
+    Status values returned to the client:
+      marked          — attendance successfully recorded
+      already_marked  — user already checked in today
+      no_face         — no face detected (or embedding failed)
+      no_match        — face detected but no registered user matched
+    """
+
+    # ── 1. Model availability ─────────────────────────────────────────────────
+    if not getattr(request.app.state, "model_ready", False):
+        raise ModelNotReadyError()
+
+    # ── 2. Decode image ───────────────────────────────────────────────────────
+    frame = decode_base64_image(payload.image)
+
+    # ── 3. Detect faces ───────────────────────────────────────────────────────
+    detector = request.app.state.detector
+    logger.debug("SCAN step 3: running face detection on frame %dx%d", frame.shape[1], frame.shape[0])
+    try:
+        boxes = detector.detect_faces(frame)
+    except Exception as exc:
+        logger.error("Face detection failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Face detection failed internally")
+
+    logger.debug("SCAN step 3: detected %d face(s)", len(boxes))
+    if not boxes:
+        logger.info("SCAN result=no_face  reason=no_boxes")
+        return ScanAttendanceResponse(
+            status="no_face",
+            message="No face detected. Please look directly at the camera.",
+        )
+
+    # ── 4. Align face ─────────────────────────────────────────────────────────
+    aligner = request.app.state.aligner
+    box = _pick_largest_box(boxes)
+    logger.debug("SCAN step 4: aligning face box=%s", box)
+    try:
+        face = aligner.align_face(frame, box)
+    except Exception as exc:
+        logger.error("Face alignment failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Face alignment failed internally")
+
+    if face is None:
+        logger.info("SCAN result=no_face  reason=align_returned_none  box=%s", box)
+        return ScanAttendanceResponse(
+            status="no_face",
+            message="Could not crop face from image. Please reposition.",
+        )
+
+    logger.debug("SCAN step 4: aligned face shape=%s", face.shape)
+
+    # ── 5. Extract embedding ──────────────────────────────────────────────────
+    embedder = request.app.state.embedder
+    logger.debug("SCAN step 5: extracting embedding")
+    try:
+        embedding = embedder.get_embedding(face)
+    except Exception as exc:
+        logger.error("Embedding extraction failed: %s", exc, exc_info=True)
+        raise EmbeddingError()
+
+    if embedding is None:
+        logger.info("SCAN result=no_face  reason=embedding_is_none")
+        return ScanAttendanceResponse(
+            status="no_face",
+            message="Face detected but features could not be extracted. Try better lighting.",
+        )
+
+    logger.debug("SCAN step 5: embedding shape=%s", embedding.shape)
+
+    # ── 6. Load stored embeddings & match ─────────────────────────────────────
+    face_db = FaceDatabase(conn)
+    try:
+        face_data = face_db.get_all_embeddings_by_user_id()
+    except Exception as exc:
+        logger.error("DB error fetching embeddings: %s", exc)
+        raise DatabaseError("Failed to load face embeddings from database") from exc
+
+    total_stored = sum(len(d["embeddings"]) for d in face_data.values())
+    logger.debug("SCAN step 6: loaded %d users, %d total embeddings", len(face_data), total_stored)
+
+    if not face_data:
+        logger.info("SCAN result=no_match  reason=no_registered_embeddings")
+        return ScanAttendanceResponse(
+            status="no_match",
+            message="No registered users with face data. Please register first.",
+        )
+
+    matched_id, matched_name, score = _match_embedding(embedding, face_data)
+    logger.debug(
+        "SCAN step 6: best_match=%s  name=%s  score=%.4f  threshold=%.2f",
+        matched_id, matched_name, score, MATCH_THRESHOLD,
+    )
+
+    if matched_id is None:
+        logger.info("SCAN result=no_match  best_score=%.4f  threshold=%.2f", score, MATCH_THRESHOLD)
+        return ScanAttendanceResponse(
+            status="no_match",
+            message="No matching registered user found.",
+            confidence=round(score, 4),
+        )
+
+    # ── 7. Check existing attendance ──────────────────────────────────────────
+    today = datetime.now().date().isoformat()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, time, checkout_time FROM attendance WHERE user_id = ? AND date = ?",
+            (matched_id, today),
+        )
+        existing = cursor.fetchone()
+    except sqlite3.Error as exc:
+        logger.error("DB error checking existing attendance: %s", exc)
+        raise DatabaseError() from exc
+
+    if existing:
+        checkin_time  = existing["time"]
+        checkout_time = existing["checkout_time"]
+
+        # Already both checked in and checked out today
+        if checkout_time is not None:
+            logger.info(
+                "SCAN result=already_marked  user=%s  id=%d  checked_in_at=%s  checked_out_at=%s",
+                matched_name, matched_id, checkin_time, checkout_time,
+            )
+            return ScanAttendanceResponse(
+                status="already_marked",
+                name=matched_name,
+                time=checkin_time,
+                user_id=matched_id,
+                message=f"{matched_name} already completed attendance today (in: {checkin_time}, out: {checkout_time}).",
+                confidence=round(score, 4),
+            )
+
+        # Checked in but not yet checked out — record checkout now
+        now_time = datetime.now().strftime("%H:%M:%S")
+        try:
+            cursor.execute(
+                "UPDATE attendance SET checkout_time = ? WHERE id = ?",
+                (now_time, existing["id"]),
+            )
+            conn.commit()
+        except sqlite3.Error as exc:
+            logger.error("DB error recording checkout: %s", exc)
+            raise DatabaseError("Failed to record checkout") from exc
+
+        logger.info(
+            "SCAN result=checked_out  user=%s  id=%d  checked_in_at=%s  checked_out_at=%s  confidence=%.4f",
+            matched_name, matched_id, checkin_time, now_time, score,
+        )
+        return ScanAttendanceResponse(
+            status="checked_out",
+            name=matched_name,
+            time=now_time,
+            user_id=matched_id,
+            message=f"Goodbye, {matched_name}! Checked out at {now_time}.",
+            confidence=round(score, 4),
+        )
+
+    # ── 8. Record check-in ────────────────────────────────────────────────────
+    mark_time = datetime.now().strftime("%H:%M:%S")
+    try:
+        cursor.execute(
+            "INSERT INTO attendance (user_id, date, time) VALUES (?, ?, ?)",
+            (matched_id, today, mark_time),
+        )
+        conn.commit()
+    except sqlite3.Error as exc:
+        logger.error("DB error inserting attendance: %s", exc)
+        raise DatabaseError("Failed to record attendance") from exc
+
+    logger.info(
+        "SCAN result=marked  user=%s  id=%d  time=%s  confidence=%.4f",
+        matched_name, matched_id, mark_time, score,
+    )
+    return ScanAttendanceResponse(
+        status="marked",
+        name=matched_name,
+        time=mark_time,
+        user_id=matched_id,
+        message=f"Welcome, {matched_name}! Checked in at {mark_time}.",
+        confidence=round(score, 4),
+    )
+
+
+@router.get("/attendance", response_model=list[AttendanceRecordResponse])
+def list_attendance(
+    date: Optional[str] = Query(default=None, description="YYYY-MM-DD"),
+    conn=Depends(get_connection),
+):
+    try:
+        cursor = conn.cursor()
+        base_sql = """
+            SELECT attendance.id, attendance.user_id, users.name,
+                   attendance.date, attendance.time, attendance.checkout_time
+            FROM attendance
+            JOIN users ON users.id = attendance.user_id
+        """
+        if date:
+            cursor.execute(
+                base_sql + " WHERE attendance.date = ? ORDER BY attendance.time DESC",
+                (date,),
+            )
+        else:
+            cursor.execute(base_sql + " ORDER BY attendance.date DESC, attendance.time DESC")
+
+        rows = cursor.fetchall()
+    except sqlite3.Error as exc:
+        logger.error("DB error listing attendance: %s", exc)
+        raise DatabaseError() from exc
+
+    return [
+        AttendanceRecordResponse(
+            id=r["id"],
+            user_id=r["user_id"],
+            name=r["name"],
+            date=r["date"],
+            time=r["time"],
+            checkout_time=r["checkout_time"],
+        )
+        for r in rows
+    ]
+
+
+@router.get("/stats/today", response_model=StatsTodayResponse)
+def get_today_stats(conn=Depends(get_connection)):
+    today = datetime.now().date().isoformat()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) AS total_users FROM users")
+        total_users: int = cursor.fetchone()["total_users"]
+
+        # All who checked in (regardless of checkout status)
+        cursor.execute(
+            "SELECT COUNT(DISTINCT user_id) AS present_users FROM attendance WHERE date = ?",
+            (today,),
+        )
+        present_users: int = cursor.fetchone()["present_users"]
+
+        # Checked in AND already checked out
+        cursor.execute(
+            """
+            SELECT COUNT(DISTINCT user_id) AS checked_out_count
+            FROM attendance
+            WHERE date = ? AND checkout_time IS NOT NULL
+            """,
+            (today,),
+        )
+        checked_out_count: int = cursor.fetchone()["checked_out_count"]
+
+        # Currently on premises (checked in but not yet checked out)
+        currently_present: int = present_users - checked_out_count
+
+    except sqlite3.Error as exc:
+        logger.error("DB error fetching today stats: %s", exc)
+        raise DatabaseError() from exc
+
+    attendance_percent = (
+        round((present_users / total_users) * 100, 2) if total_users > 0 else 0.0
+    )
+
+    return StatsTodayResponse(
+        date=today,
+        total_users=total_users,
+        present_users=present_users,
+        currently_present=currently_present,
+        checked_out_count=checked_out_count,
+        attendance_percent=attendance_percent,
+    )
+
+
+@router.get("/logs/recent")
+def get_recent_scan_events():
+    """Return up to 10 recent SCAN result events parsed from the log file."""
+    log_path = "logs/attendance.log"
+    events: list[dict] = []
+
+    if not os.path.exists(log_path):
+        return events
+
+    line_pattern = re.compile(
+        r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \| \w+\s+\| api\.routes \| SCAN result=(\w+)(?:\s{2,}(.*))?$"
+    )
+
+    try:
+        with open(log_path, "r", encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return events
+
+    for line in reversed(lines):
+        m = line_pattern.match(line.strip())
+        if not m:
+            continue
+
+        timestamp = m.group(1)
+        result = m.group(2)
+        rest = m.group(3) or ""
+
+        # Parse double-space-separated key=value pairs (handles names with spaces)
+        kv: dict[str, str] = {}
+        for part in re.split(r"\s{2,}", rest.strip()):
+            if "=" in part:
+                key, _, val = part.partition("=")
+                kv[key.strip()] = val.strip()
+
+        events.append(
+            {
+                "timestamp": timestamp,
+                "result": result,
+                "user": kv.get("user"),
+                "time": kv.get("checked_in_at") or kv.get("checked_out_at") or kv.get("time"),
+                "checkin_time": kv.get("checked_in_at"),
+                "checkout_time": kv.get("checked_out_at"),
+                "confidence": float(kv["confidence"]) if "confidence" in kv else None,
+                "user_id": int(kv["id"]) if kv.get("id", "").isdigit() else None,
+            }
+        )
+
+        if len(events) >= 10:
+            break
+
+    return events
+
+
+================================================================================
+FILE: api/server.py
+================================================================================
+
+import logging
+import os
+from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from api.errors import AppError, app_error_handler, unhandled_error_handler
+from api.routes import init_database, router
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+os.makedirs("logs", exist_ok=True)
+
+_fmt = logging.Formatter(
+    "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
+_console = logging.StreamHandler()
+_console.setLevel(logging.INFO)
+_console.setFormatter(_fmt)
+
+_file = RotatingFileHandler(
+    "logs/attendance.log",
+    maxBytes=5 * 1024 * 1024,   # 5 MB per file
+    backupCount=3,
+    encoding="utf-8",
+)
+_file.setLevel(logging.DEBUG)   # capture DEBUG too so scan pipeline is traceable
+_file.setFormatter(_fmt)
+
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+root_logger.addHandler(_console)
+root_logger.addHandler(_file)
+
+logger = logging.getLogger(__name__)
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Runs once on startup and once on shutdown.
+
+    Startup order:
+      1. Initialise SQLite schema (idempotent).
+      2. Load FaceDetector + FaceAligner (fast, pure-OpenCV/MediaPipe).
+      3. Load FaceEmbedder (lazy-loads the ArcFace ONNX model — can be slow).
+
+    If the vision pipeline fails to load the API still starts; face-scan
+    endpoints will return 503 until the problem is resolved.
+    """
+
+    logger.info("=" * 60)
+    logger.info("Smart Attendance API — session start")
+    logger.info("=" * 60)
+
+    # ── 1. Database ───────────────────────────────────────────────────────────
+    logger.info("Initialising database schema...")
+    try:
+        init_database()
+        logger.info("Database ready")
+    except Exception as exc:
+        logger.critical("Database initialisation failed: %s", exc)
+        raise  # hard failure — no point continuing without a DB
+
+    # ── 2 & 3. Vision pipeline ────────────────────────────────────────────────
+    logger.info("Loading vision pipeline (detector / aligner / embedder)...")
+    try:
+        from vision.aligner import FaceAligner
+        from vision.detector import FaceDetector
+        from vision.embedder import FaceEmbedder
+
+        app.state.detector = FaceDetector()
+        logger.info("FaceDetector ready")
+
+        app.state.aligner = FaceAligner()
+        logger.info("FaceAligner ready")
+
+        embedder = FaceEmbedder()
+        embedder._ensure_model_loaded()          # trigger eager load here
+        app.state.embedder = embedder
+        app.state.model_ready = True
+        logger.info("FaceEmbedder (ArcFace) ready — face scan is available")
+
+    except Exception as exc:
+        logger.error(
+            "Vision pipeline failed to load: %s  |  "
+            "Face-scan endpoints will return 503 until this is fixed.",
+            exc,
+        )
+        # Attach None-safe stubs so attribute access never raises AttributeError
+        app.state.detector = None
+        app.state.aligner = None
+        app.state.embedder = None
+        app.state.model_ready = False
+
+    yield  # ←── application runs here
+
+    # ── Shutdown ──────────────────────────────────────────────────────────────
+    logger.info("Smart Attendance API shutting down")
+
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+
+app = FastAPI(
+    title="Smart Attendance API",
+    version="1.0.0",
+    description="Face-recognition-based attendance tracking backend.",
+    lifespan=lifespan,
+)
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Exception handlers ────────────────────────────────────────────────────────
+# Order matters: the specific AppError handler must be registered first so
+# FastAPI picks it up before the catch-all Exception handler.
+
+app.add_exception_handler(AppError, app_error_handler)          # type: ignore[arg-type]
+app.add_exception_handler(Exception, unhandled_error_handler)   # type: ignore[arg-type]
+
+# ── Routers ───────────────────────────────────────────────────────────────────
+
+app.include_router(router, prefix="/api")
+
+
+================================================================================
+FILE: attendance/attendance_service.py
+================================================================================
+
+from datetime import datetime
+
+
+class AttendanceService:
+
+	def __init__(self, connection):
+		self.conn = connection
+
+	def has_attended_today(self, user_id):
+
+		today = datetime.now().date().isoformat()
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"""
+			SELECT * FROM attendance
+			WHERE user_id = ? AND date = ?
+			""",
+			(user_id, today)
+		)
+
+		result = cursor.fetchone()
+
+		return result is not None
+
+	def mark_attendance(self, user_id):
+
+		if self.has_attended_today(user_id):
+			return False
+
+		now = datetime.now()
+
+		date = now.date().isoformat()
+		time = now.time().strftime("%H:%M:%S")
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"""
+			INSERT INTO attendance (user_id, date, time)
+			VALUES (?, ?, ?)
+			""",
+			(user_id, date, time)
+		)
+
+		self.conn.commit()
+
+		return True
+
+	def get_today_record(self, user_id):
+		"""Return today's attendance row for user_id, or None."""
+		today = datetime.now().date().isoformat()
+		cursor = self.conn.cursor()
+		cursor.execute(
+			"SELECT * FROM attendance WHERE user_id = ? AND date = ?",
+			(user_id, today)
+		)
+		return cursor.fetchone()
+
+	def mark_checkout(self, user_id) -> str | None:
+		"""
+		Record the checkout time for a user who has already checked in today
+		but has not yet checked out.
+		Returns the checkout time string on success, None if not applicable.
+		"""
+		today = datetime.now().date().isoformat()
+		cursor = self.conn.cursor()
+		cursor.execute(
+			"SELECT id, checkout_time FROM attendance WHERE user_id = ? AND date = ?",
+			(user_id, today)
+		)
+		row = cursor.fetchone()
+
+		if row is None or row["checkout_time"] is not None:
+			return None
+
+		checkout_time = datetime.now().time().strftime("%H:%M:%S")
+		cursor.execute(
+			"UPDATE attendance SET checkout_time = ? WHERE id = ?",
+			(checkout_time, row["id"])
+		)
+		self.conn.commit()
+		return checkout_time
+
+
+================================================================================
+FILE: database/models.py
+================================================================================
+
+import sqlite3
+import numpy as np
+
+
+class FaceDatabase:
+	def __init__(self, connection):
+		self.conn = connection
+		self.create_tables()
+
+	def create_tables(self):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute("""
+		CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+		""")
+
+		cursor.execute("""
+		CREATE TABLE IF NOT EXISTS face_embeddings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			embedding BLOB,
+			FOREIGN KEY(user_id) REFERENCES users(id)
+		)
+		""")
+
+		cursor.execute("""
+		CREATE TABLE IF NOT EXISTS attendance (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER,
+			date TEXT,
+			time TEXT,
+			checkout_time TEXT,
+			FOREIGN KEY(user_id) REFERENCES users(id)
+		)
+		""")
+
+		# Migration: add checkout_time to existing databases that predate this column
+		try:
+			cursor.execute("ALTER TABLE attendance ADD COLUMN checkout_time TEXT")
+			self.conn.commit()
+		except Exception:
+			pass  # Column already exists — safe to ignore
+
+		self.conn.commit()
+
+	def add_user(self, name):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"INSERT INTO users (name) VALUES (?)",
+			(name,)
+		)
+
+		self.conn.commit()
+
+		return cursor.lastrowid
+
+	def add_embedding(self, user_id, embedding):
+
+		embedding_blob = embedding.astype(np.float32).tobytes()
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"INSERT INTO face_embeddings (user_id, embedding) VALUES (?, ?)",
+			(user_id, embedding_blob)
+		)
+
+		self.conn.commit()
+
+	def get_all_embeddings(self):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute("""
+		SELECT users.name, face_embeddings.embedding
+		FROM face_embeddings
+		JOIN users ON users.id = face_embeddings.user_id
+		""")
+
+		rows = cursor.fetchall()
+
+		embeddings = {}
+
+		for row in rows:
+
+			name = row["name"]
+			embedding = np.frombuffer(row["embedding"], dtype=np.float32)
+
+			if name not in embeddings:
+				embeddings[name] = []
+
+			embeddings[name].append(embedding)
+
+		return embeddings
+
+	def get_all_embeddings_by_user_id(self) -> dict:
+		"""
+		Returns embeddings keyed by user_id so the scan endpoint can mark
+		attendance by ID without ambiguity from duplicate names.
+
+		Shape: { user_id: {"name": str, "embeddings": [np.ndarray]} }
+		Silently skips corrupt blobs rather than crashing.
+		"""
+		cursor = self.conn.cursor()
+		cursor.execute("""
+			SELECT users.id AS user_id, users.name, face_embeddings.embedding
+			FROM face_embeddings
+			JOIN users ON users.id = face_embeddings.user_id
+		""")
+		rows = cursor.fetchall()
+
+		result: dict = {}
+		for row in rows:
+			uid = row["user_id"]
+			try:
+				embedding = np.frombuffer(row["embedding"], dtype=np.float32).copy()
+				if embedding.size == 0:
+					continue
+			except Exception:
+				continue
+
+			if uid not in result:
+				result[uid] = {"name": row["name"], "embeddings": []}
+			result[uid]["embeddings"].append(embedding)
+
+		return result
+
+	def get_user_id(self, name):
+
+		cursor = self.conn.cursor()
+
+		cursor.execute(
+			"SELECT id FROM users WHERE name = ?",
+			(name,)
+		)
+
+		row = cursor.fetchone()
+
+		if row:
+			return row["id"]
+
+		return None
+
+
+================================================================================
+FILE: docs/project_extract.py
+================================================================================
+
+#!/usr/bin/env python3
+# ============================================================================
+# PROJECT EXTRACTION UTILITY
+# ============================================================================
+# Purpose: Generate a comprehensive report of the entire Python codebase
+# Output: Single text file containing:
+#         1. Visual tree structure of project directories/files
+#         2. Complete content of all Python files
+#         3. Summary statistics
+# Usage: python Project_extract.py
+# Use Case: Code review, documentation, sharing codebase overview
+# ============================================================================
+
+"""
+Extract all Python files with their content and project structure into a single text file.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+
+def get_project_structure(root_dir, prefix="", max_depth=10, current_depth=0, ignore_dirs=None):
+    """
+    Generate a text representation of the project structure.
+    
+    Creates a tree-style visualization of directories and files.
+    Recursively traverses subdirectories while respecting depth limits.
+    
+    Args:
+        root_dir: Starting directory path
+        prefix: String prefix for tree indentation
+        max_depth: Maximum recursion depth to prevent infinite loops
+        current_depth: Current recursion level
+        ignore_dirs: Set of directory names to skip
+    
+    Returns:
+        String containing formatted directory tree
+    """
+    if ignore_dirs is None:
+        ignore_dirs = {".git", "__pycache__", ".pytest_cache", "*.egg-info", ".venv", "venv", "env"}
+    
+    if current_depth >= max_depth:
+        return ""
+    
+    structure = ""
+    try:
+        items = sorted(os.listdir(root_dir))
+    except PermissionError:
+        return ""
+    
+    dirs = []
+    files = []
+    
+    for item in items:
+        # Skip hidden files/dirs and common ignore patterns
+        if item.startswith("."):
+            continue
+        if item in ignore_dirs or any(item.endswith(x.replace("*", "")) for x in ignore_dirs if "*" in x):
+            continue
+        
+        item_path = os.path.join(root_dir, item)
+        if os.path.isdir(item_path):
+            dirs.append(item)
+        else:
+            files.append(item)
+    
+    # Add files first
+    for i, file in enumerate(files):
+        is_last_file = (i == len(files) - 1) and len(dirs) == 0
+        structure += f"{prefix}{'└── ' if is_last_file else '├── '}{file}\n"
+    
+    # Add directories
+    for i, dir_name in enumerate(dirs):
+        is_last = i == len(dirs) - 1
+        structure += f"{prefix}{'└── ' if is_last else '├── '}{dir_name}/\n"
+        
+        dir_path = os.path.join(root_dir, dir_name)
+        extension = "    " if is_last else "│   "
+        structure += get_project_structure(dir_path, prefix + extension, max_depth, current_depth + 1, ignore_dirs)
+    
+    return structure
+
+
+def extract_python_files(root_dir, output_file):
+    """
+    Extract all Python files and their content.
+    
+    Main extraction function that:
+    1. Walks through directory tree to find all .py files
+    2. Generates project structure visualization
+    3. Writes formatted output with all file contents
+    4. Provides summary statistics
+    
+    Args:
+        root_dir: Root directory to scan
+        output_file: Path to output text file
+    """
+    py_files = []
+    
+    # Collect all Python files
+    for root, dirs, files in os.walk(root_dir):
+        # Skip certain directories
+        dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", ".pytest_cache", ".venv", "venv", "env"}]
+        
+        for file in files:
+            if file.endswith(".py") or file.endswith(".html") or file.endswith(".css") or file.endswith(".js"):
+                file_path = os.path.join(root, file)
+                py_files.append(file_path)
+    
+    # Sort files for consistent output
+    py_files.sort()
+    
+    # Write to output file
+    with open(output_file, "w", encoding="utf-8") as out:
+        # Header
+        out.write("=" * 80 + "\n")
+        out.write("PROJECT EXTRACTION REPORT\n")
+        out.write("=" * 80 + "\n\n")
+        
+        # Project Structure
+        out.write("PROJECT STRUCTURE:\n")
+        out.write("-" * 80 + "\n\n")
+        out.write(f"{os.path.basename(root_dir)}/\n")
+        out.write(get_project_structure(root_dir))
+        out.write("\n\n")
+        
+        # File Contents
+        out.write("=" * 80 + "\n")
+        out.write("FILE CONTENTS\n")
+        out.write("=" * 80 + "\n\n")
+        
+        for file_path in py_files:
+            # Calculate relative path
+            rel_path = os.path.relpath(file_path, root_dir)
+            
+            # Write file header
+            out.write(f"\n{'=' * 80}\n")
+            out.write(f"FILE: {rel_path}\n")
+            out.write(f"{'=' * 80}\n\n")
+            
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    out.write(content)
+            except Exception as e:
+                out.write(f"[ERROR] Could not read file: {str(e)}\n")
+            
+            out.write("\n")
+        
+        # Summary
+        out.write("\n" + "=" * 80 + "\n")
+        out.write(f"SUMMARY: {len(py_files)} Python files extracted\n")
+        out.write("=" * 80 + "\n")
+    
+    print(f"✓ Extraction complete!")
+    print(f"✓ Total Python files: {len(py_files)}")
+    print(f"✓ Output saved to: {output_file}")
+    print(f"✓ File size: {os.path.getsize(output_file) / 1024:.2f} KB")
+
+
+if __name__ == "__main__":
+    # Get project root (current directory)
+    project_root = os.getcwd()
+    
+    # Output file
+    output_filename = "project_extraction.txt"
+    output_path = os.path.join(project_root, output_filename)
+    
+    print(f"Extracting Python files from: {project_root}")
+    print(f"Output file: {output_path}\n")
+    
+    extract_python_files(project_root, output_path)
+
+
+================================================================================
+FILE: frontend/api.js
+================================================================================
+
+const API_BASE = "http://127.0.0.1:8000/api";
+
+const API = {
+    async checkHealth() {
+        const res = await fetch(`${API_BASE}/health`);
+        return res.json();
+    },
+
+    async scanAttendance(imageBase64) {
+        const response = await fetch(`${API_BASE}/attendance/scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: imageBase64 })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "Server error");
+        }
+        return response.json();
+    },
+
+    async registerUser(name, images) {
+        const response = await fetch(`${API_BASE}/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, images })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "Registration failed");
+        }
+        return response.json();
+    },
+
+    async getAttendance(date = null) {
+        const url = date ? `${API_BASE}/attendance?date=${date}` : `${API_BASE}/attendance`;
+        const response = await fetch(url);
+        return response.json();
+    },
+
+    async getTodayStats() {
+        const response = await fetch(`${API_BASE}/stats/today`);
+        return response.json();
+    },
+
+    async getUsers() {
+        const response = await fetch(`${API_BASE}/users`);
+        return response.json();
+    },
+
+    async deleteUser(userId) {
+        const response = await fetch(`${API_BASE}/users/${userId}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            throw new Error('Failed to delete user');
+        }
+        return true;
+    },
+
+    async getRecentScanEvents() {
+        const response = await fetch(`${API_BASE}/logs/recent`);
+        return response.json();
+    }
+};
+
+// Toast notification helper
+function showToast(message, type = 'info') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <span>${type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ'}</span>
+        <span>${message}</span>
+    `;
+    
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100px)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+================================================================================
+FILE: frontend/app.js
+================================================================================
+
+const App = {
+    stream: null,
+    capturedImages: [],
+    scanInterval: null,
+    lastRecognizedUserId: null,
+    lastScanStatus: null,
+    registeredUsers: [],
+    _statsRange: 'today',
+
+    // Toast helper
+    showToast(message, type = 'info') {
+        showToast(message, type);
+    },
+
+    // --- Media Helpers ---
+    async startWebcam(videoId, mirror = true) {
+        try {
+            if (this.stream) {
+                this.stopWebcam();
+            }
+            this.stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480, facingMode: 'user' } 
+            });
+            const video = document.getElementById(videoId);
+            video.srcObject = this.stream;
+            if (mirror) {
+                video.style.transform = 'scaleX(-1)';
+            }
+            return true;
+        } catch (err) {
+            console.error("Webcam Error:", err);
+            this.showToast("Could not access webcam. Please check permissions.", "error");
+            return false;
+        }
+    },
+
+    stopWebcam() {
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => track.stop());
+            this.stream = null;
+        }
+    },
+
+    captureFrame(videoId, mirror = true) {
+        const video = document.getElementById(videoId);
+        if (!video || !video.videoWidth || !video.videoHeight) return null;
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (mirror) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
+        ctx.drawImage(video, 0, 0);
+        return canvas.toDataURL('image/jpeg', 0.8);
+    },
+
+    // --- Page: Scan ---
+    async initScanPage() {
+        const statusCard    = document.getElementById('scan-result-card');
+        const statusMsg     = document.getElementById('status-message');
+        const statusDetail  = document.getElementById('status-detail');
+        const resultIcon    = document.getElementById('result-icon');
+        const cameraFrame   = document.getElementById('camera-frame');
+        const recognizedDiv = document.getElementById('recognized-user');
+        const scanBtn       = document.getElementById('scan-btn');
+        const logEntries    = document.getElementById('log-entries');
+        const logRefreshBtn = document.getElementById('log-refresh-btn');
+
+        const set = (el, prop, val) => { if (el) el[prop] = val; };
+        const cls = (el, c)         => { if (el) el.className = c; };
+
+        // Start camera
+        const webcamStarted = await this.startWebcam('webcam', true);
+        if (!webcamStarted) {
+            cls(statusCard, 'scan-result-card state-error');
+            set(resultIcon,   'innerText', '✗');
+            set(statusMsg,    'innerText', 'Camera Error');
+            set(statusDetail, 'innerText', 'Could not access camera — check permissions');
+            return;
+        }
+
+        // Wait for video stream to have actual pixel data
+        const video = document.getElementById('webcam');
+        if (video && video.readyState < 2) {
+            await new Promise(resolve => {
+                video.addEventListener('loadeddata', resolve, { once: true });
+                setTimeout(resolve, 4000);
+            });
+        }
+
+        // Camera ready
+        if (cameraFrame) cameraFrame.classList.add('scanning');
+        cls(statusCard, 'scan-result-card state-ready');
+        set(resultIcon,   'innerText', '◎');
+        set(statusMsg,    'innerText', 'Ready to Scan');
+        set(statusDetail, 'innerText', 'Press the button to check attendance');
+
+        if (scanBtn) {
+            scanBtn.disabled   = false;
+            scanBtn.textContent = 'Scan Face';
+            scanBtn.addEventListener('click', () => {
+                this.performScan(scanBtn, statusCard, statusMsg, statusDetail, resultIcon, cameraFrame, recognizedDiv, logEntries);
+            });
+        }
+
+        if (logRefreshBtn) {
+            logRefreshBtn.addEventListener('click', () => this.loadLogPanel(logEntries));
+        }
+
+        // Load initial recent activity
+        this.loadLogPanel(logEntries);
+    },
+
+    async performScan(btn, card, msg, detail, icon, cameraFrame, recognizedDiv, logEntries) {
+        const set = (el, prop, val) => { if (el) el[prop] = val; };
+        const cls = (el, c)         => { if (el) el.className = c; };
+
+        const b64 = this.captureFrame('webcam', true);
+        if (!b64) {
+            cls(card, 'scan-result-card state-error');
+            set(icon,   'innerText', '⚠');
+            set(msg,    'innerText', 'Capture Failed');
+            set(detail, 'innerText', 'Camera not ready — try again');
+            return;
+        }
+
+        // Scanning state
+        if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+        cls(card, 'scan-result-card state-scanning');
+        set(icon,   'innerText', '⟳');
+        set(msg,    'innerText', 'Processing…');
+        set(detail, 'innerText', 'Analyzing your face');
+        if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+
+        try {
+            // Send image to backend
+            await API.scanAttendance(b64);
+
+            // Give the server a moment to flush the log, then fetch it
+            await new Promise(r => setTimeout(r, 400));
+            const events = await API.getRecentScanEvents();
+
+            // Use the latest log event as the source of truth for the UI
+            if (events && events.length > 0) {
+                const latest = events[0];
+                this.updateScanUIFromLog(latest, card, msg, detail, icon, cameraFrame, recognizedDiv);
+            } else {
+                cls(card, 'scan-result-card state-error');
+                set(icon,   'innerText', '?');
+                set(msg,    'innerText', 'No Result');
+                set(detail, 'innerText', 'Backend returned no log entry');
+            }
+
+            // Refresh log panel
+            this.renderLogPanel(logEntries, events);
+
+        } catch (err) {
+            cls(card, 'scan-result-card state-error');
+            set(icon,   'innerText', '⚠');
+            set(msg,    'innerText', 'Connection Error');
+            set(detail, 'innerText', err.message || 'Server unreachable');
+        } finally {
+            // Re-enable scan button after short delay
+            setTimeout(() => {
+                if (btn) { btn.disabled = false; btn.textContent = 'Scan Again'; }
+            }, 1800);
+        }
+    },
+
+    updateScanUIFromLog(event, card, msg, detail, icon, cameraFrame, recognizedDiv) {
+        const set = (el, prop, val) => { if (el) el[prop] = val; };
+        const cls = (el, c)         => { if (el) el.className = c; };
+
+        switch (event.result) {
+            case 'marked':
+                cls(card, 'scan-result-card state-success');
+                set(icon,   'innerText', '✓');
+                set(msg,    'innerText', 'Attendance Marked!');
+                set(detail, 'innerText', `Checked in at ${event.time}`);
+                if (cameraFrame) cameraFrame.className = 'camera-frame success';
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'marked');
+                this.showToast(`Welcome, ${event.user}! Marked at ${event.time}`, 'success');
+                break;
+
+            case 'checked_out':
+                cls(card, 'scan-result-card state-checkout');
+                set(icon,   'innerHTML', '<i class="fas fa-right-from-bracket"></i>');
+                set(msg,    'innerText', 'Checked Out');
+                set(detail, 'innerText', `Left at ${event.time}`);
+                if (cameraFrame) cameraFrame.className = 'camera-frame checkout';
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'checked_out');
+                this.showToast(`Goodbye, ${event.user}! Checked out at ${event.time}`, 'info');
+                break;
+
+            case 'already_marked':
+                cls(card, 'scan-result-card state-warning');
+                set(icon,   'innerText', '✓');
+                set(msg,    'innerText', 'Already Completed');
+                set(detail, 'innerText', `Already checked in & out today`);
+                if (cameraFrame) cameraFrame.className = 'camera-frame warning';
+                this.showRecognizedUser(event.user, event.confidence, event.time, recognizedDiv, 'already_marked');
+                this.showToast(`${event.user} — attendance already complete today`, 'warning');
+                break;
+
+            case 'no_match':
+                cls(card, 'scan-result-card state-error');
+                set(icon,   'innerText', '?');
+                set(msg,    'innerText', 'Face Not Recognized');
+                set(detail, 'innerText', 'Not registered — please register first');
+                if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+                if (recognizedDiv) recognizedDiv.innerHTML = '';
+                break;
+
+            case 'no_face':
+            default:
+                cls(card, 'scan-result-card state-scanning');
+                set(icon,   'innerText', '◎');
+                set(msg,    'innerText', 'No Face Detected');
+                set(detail, 'innerText', 'Make sure your face is in the oval and try again');
+                if (cameraFrame) cameraFrame.className = 'camera-frame scanning';
+                if (recognizedDiv) recognizedDiv.innerHTML = '';
+                break;
+        }
+    },
+
+    async loadLogPanel(container) {
+        if (!container) return;
+        try {
+            const events = await API.getRecentScanEvents();
+            this.renderLogPanel(container, events);
+        } catch (_) {
+            if (container) container.innerHTML = '<p class="log-empty">Could not load activity</p>';
+        }
+    },
+
+    renderLogPanel(container, events) {
+        if (!container) return;
+        if (!events || events.length === 0) {
+            container.innerHTML = '<p class="log-empty">No recent activity</p>';
+            return;
+        }
+        container.innerHTML = events.map(e => {
+            const iconMap  = { marked: '✓', checked_out: '⇤', already_marked: '✓', no_match: '?', no_face: '○' };
+            const clsMap   = { marked: 'log-success', checked_out: 'log-checkout', already_marked: 'log-warning', no_match: 'log-error', no_face: 'log-muted' };
+            const labelMap = {
+                marked:         e.user ? `${e.user} — in at ${e.time}` : 'Marked',
+                checked_out:    e.user ? `${e.user} — out at ${e.time}` : 'Checked out',
+                already_marked: e.user ? `${e.user} — already complete` : 'Already marked',
+                no_match:       'Unknown face scanned',
+                no_face:        'No face detected',
+            };
+            const ic  = iconMap[e.result]  || '○';
+            const cl  = clsMap[e.result]   || 'log-muted';
+            const lbl = labelMap[e.result] || e.result;
+            const ts  = e.timestamp ? e.timestamp.split(' ')[1] : '';
+            return `<div class="log-entry ${cl}">
+                <span class="log-icon">${ic}</span>
+                <div class="log-body">
+                    <span class="log-label">${lbl}</span>
+                    <span class="log-ts">${ts}</span>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    showRecognizedUser(name, confidence, time, container, status) {
+        if (!container || !name) return;
+        const initial   = name.charAt(0).toUpperCase();
+        const confPct   = confidence != null ? (confidence * 100).toFixed(1) : null;
+        const timeLabel = status === 'marked'      ? `Just checked in at ${time}` :
+                          status === 'checked_out' ? `Checked out at ${time}` :
+                                                     `Checked in at ${time}`;
+        container.innerHTML = `
+            <div class="user-recognized">
+                <div class="user-avatar-large">${initial}</div>
+                <div class="user-recognized-info">
+                    <h3>${name}</h3>
+                    <p>${timeLabel}</p>
+                    ${confPct ? `<span class="confidence-badge">Match ${confPct}%</span>` : ''}
+                </div>
+            </div>
+        `;
+    },
+
+    stopScanning() {
+        if (this.scanInterval) {
+            clearInterval(this.scanInterval);
+            this.scanInterval = null;
+        }
+        this.stopWebcam();
+        const cameraFrame = document.getElementById('camera-frame');
+        if (cameraFrame) cameraFrame.classList.remove('scanning');
+    },
+
+    // --- Page: Register ---
+    async initRegisterPage() {
+        const webcamStarted = await this.startWebcam('webcam', true);
+        if (!webcamStarted) return;
+        
+        this.capturedImages = [];
+        const captureBtn = document.getElementById('capture-btn');
+        const submitBtn = document.getElementById('submit-reg');
+        const statusDiv = document.getElementById('reg-status');
+        const thumbnailsDiv = document.getElementById('thumbnails');
+        const captureCount = document.getElementById('capture-count');
+        
+        if (captureBtn) {
+            captureBtn.addEventListener('click', () => {
+                if (this.capturedImages.length < 5) {  // Allow up to 5 images for better accuracy
+                    const b64 = this.captureFrame('webcam', true);
+                    this.capturedImages.push(b64);
+                    this.updateThumbnails(thumbnailsDiv, captureCount);
+                    
+                    if (this.capturedImages.length === 5) {
+                        captureBtn.disabled = true;
+                        captureBtn.textContent = 'Max Images Captured';
+                    } else {
+                        captureBtn.textContent = `Capture Image (${this.capturedImages.length}/5)`;
+                    }
+                    
+                    if (this.capturedImages.length >= 2) {
+                        submitBtn.disabled = false;
+                    }
+                    
+                    this.showToast(`Captured ${this.capturedImages.length}/5 images`, 'success');
+                }
+            });
+        }
+        
+        if (submitBtn) {
+            submitBtn.addEventListener('click', async () => {
+                const name = document.getElementById('username').value.trim();
+                if (!name) {
+                    this.showToast("Please enter a name", "error");
+                    return;
+                }
+                
+                if (this.capturedImages.length < 2) {
+                    this.showToast("Please capture at least 2 images", "error");
+                    return;
+                }
+                
+                submitBtn.disabled = true;
+                captureBtn.disabled = true;
+                statusDiv.classList.remove('hidden');
+                statusDiv.innerHTML = '<div class="spinner"></div> Processing registration...';
+                statusDiv.className = "status-box status-info";
+                
+                try {
+                    const res = await API.registerUser(name, this.capturedImages);
+                    statusDiv.innerHTML = `
+                        <strong>✓ Registration Successful!</strong><br>
+                        User: ${res.name}<br>
+                        Embeddings Stored: ${res.embeddings_stored}<br>
+                        ${res.embeddings_failed > 0 ? `Failed: ${res.embeddings_failed}` : ''}
+                    `;
+                    statusDiv.className = "status-box status-success";
+                    this.showToast(`${name} registered successfully!`, 'success');
+                    
+                    // Reset form
+                    this.capturedImages = [];
+                    document.getElementById('username').value = '';
+                    if (thumbnailsDiv) thumbnailsDiv.innerHTML = '';
+                    if (captureCount) captureCount.textContent = '0/5';
+                    captureBtn.textContent = "Capture Image (0/5)";
+                    captureBtn.disabled = false;
+                    submitBtn.disabled = true;
+                    
+                    // Clear thumbnails after 3 seconds
+                    setTimeout(() => {
+                        statusDiv.classList.add('hidden');
+                    }, 3000);
+                } catch (err) {
+                    statusDiv.innerHTML = `<strong>✗ Registration Failed</strong><br>${err.message}`;
+                    statusDiv.className = "status-box status-error";
+                    this.showToast(err.message, 'error');
+                    submitBtn.disabled = false;
+                    captureBtn.disabled = false;
+                }
+            });
+        }
+    },
+    
+    updateThumbnails(container, countDisplay) {
+        if (!container) return;
+        container.innerHTML = '';
+        this.capturedImages.forEach((img, idx) => {
+            const thumb = document.createElement('div');
+            thumb.className = 'thumbnail';
+            thumb.innerHTML = `
+                <img src="${img}" alt="Capture ${idx + 1}">
+                <div class="remove" data-index="${idx}">×</div>
+            `;
+            thumb.querySelector('.remove').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.capturedImages.splice(idx, 1);
+                this.updateThumbnails(container, countDisplay);
+                const captureBtn = document.getElementById('capture-btn');
+                const submitBtn = document.getElementById('submit-reg');
+                if (captureBtn) {
+                    captureBtn.disabled = false;
+                    captureBtn.textContent = `Capture Image (${this.capturedImages.length}/5)`;
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = this.capturedImages.length < 2;
+                }
+                if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5 captured`;
+                this.showToast('Image removed', 'info');
+            });
+            container.appendChild(thumb);
+        });
+        if (countDisplay) countDisplay.textContent = `${this.capturedImages.length}/5 captured`;
+    },
+
+    // --- Data Loading ---
+    async loadAttendance() {
+        const body = document.getElementById('attendance-body');
+        if (!body) return;
+        
+        body.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading...</td></tr>';
+        
+        try {
+            const data = await API.getAttendance();
+            if (data.length === 0) {
+                body.innerHTML = '<tr><td colspan="4">No attendance records found</td></tr>';
+                return;
+            }
+            body.innerHTML = data.map(row => `
+                <tr>
+                    <td>${row.user_id}</td>
+                    <td><strong>${row.name}</strong></td>
+                    <td>${row.date}</td>
+                    <td>${row.time}</td>
+                </tr>
+            `).join('');
+        } catch (err) {
+            body.innerHTML = '<tr><td colspan="4">Failed to load attendance data</td></tr>';
+            this.showToast('Failed to load attendance', 'error');
+        }
+    },
+
+    // --- Page: Stats Dashboard ---
+    async loadStats() {
+        const range = this._statsRange || 'today';
+        try {
+            if (range === 'today') {
+                await this._loadTodayDash();
+            } else {
+                await this._loadMultiDayDash(range === 'week' ? 7 : 30);
+            }
+            this._flashDashUpdate();
+        } catch (err) {
+            console.error('Stats load error:', err);
+            this.showToast('Failed to load statistics', 'error');
+        }
+    },
+
+    async _loadTodayDash() {
+        const today     = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+        const [stats, users, todayRecs, yesterdayRecs] = await Promise.all([
+            API.getTodayStats(),
+            API.getUsers(),
+            API.getAttendance(today),
+            API.getAttendance(yesterday),
+        ]);
+
+        const present          = stats.present_users;
+        const currentlyPresent = stats.currently_present ?? present;
+        const checkedOut       = stats.checked_out_count  ?? 0;
+        const total            = stats.total_users;
+        const percent          = stats.attendance_percent;
+        const yPresent         = new Set(yesterdayRecs.map(r => r.user_id)).size;
+        const diff             = present - yPresent;
+
+        // Date label
+        this._setEl('stat-date', new Date().toLocaleDateString('en-US', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+        }));
+        this._setEl('hero-label', 'Arrived Today (Check-ins)');
+
+        // Hero big numbers
+        this._animateNum('stat-present', present);
+        this._animateNum('stat-total',   total);
+        this._animateNum('sec-currently', currentlyPresent);
+        this._animateNum('sec-checkout',  checkedOut);
+        this._animateNum('sec-absent',    total - present);
+        this._setEl('hero-percent', percent + '%');
+        this._setEl('sec-absent-sub', 'Not arrived yet');
+        this._setEl('sec-peak-label', 'Peak Check-in Hour');
+
+        // Progress bar
+        const bar = document.getElementById('hero-bar-fill');
+        if (bar) setTimeout(() => { bar.style.width = Math.min(percent, 100) + '%'; }, 120);
+
+        // Health color on hero card
+        const card = document.getElementById('hero-card');
+        if (card) card.className = 'dashboard-hero-card ' +
+            (percent >= 75 ? 'health-good' : percent >= 50 ? 'health-warn' : 'health-critical');
+
+        // Trend badge
+        const badge  = document.getElementById('trend-badge');
+        const tIcon  = document.getElementById('trend-icon');
+        const tText  = document.getElementById('trend-text');
+        if (badge && tIcon && tText) {
+            if (diff > 0) {
+                badge.className = 'trend-badge trend-up';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-up"></i>';
+                tText.innerText = `+${diff} vs yesterday`;
+            } else if (diff < 0) {
+                badge.className = 'trend-badge trend-down';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-down"></i>';
+                tText.innerText  = `${diff} vs yesterday`;
+            } else {
+                badge.className = 'trend-badge trend-neutral';
+                tIcon.innerHTML = '<i class="fas fa-minus"></i>';
+                tText.innerText  = yPresent === 0 ? 'No data yesterday' : 'Same as yesterday';
+            }
+        }
+
+        // Hourly distribution
+        const hourlyData = {};
+        todayRecs.forEach(r => {
+            const h = parseInt(r.time.split(':')[0], 10);
+            hourlyData[h] = (hourlyData[h] || 0) + 1;
+        });
+
+        // Peak hour
+        const hrs = Object.keys(hourlyData).map(Number);
+        const peak = hrs.length > 0 ? hrs.reduce((a, b) => hourlyData[a] > hourlyData[b] ? a : b) : null;
+        this._setEl('sec-peak', peak !== null ? this._fmtHour(peak) : '—');
+
+        // Chart
+        this._setEl('chart-subtitle', 'Check-ins by hour — Today');
+        this._setEl('chart-meta',     todayRecs.length + ' check-ins');
+        this._drawHourlyChart(hourlyData, todayRecs.length === 0);
+
+        // Recent check-ins panel
+        const sorted = [...todayRecs].sort((a, b) => b.time.localeCompare(a.time));
+        this._renderCheckinList(sorted.slice(0, 10));
+        this._setEl('checkin-count-badge', todayRecs.length);
+
+        // Absent users panel
+        const presentIds = new Set(todayRecs.map(r => r.user_id));
+        const absent = users.filter(u => !presentIds.has(u.id));
+        this._renderAbsentList(absent);
+        this._setEl('absent-count-badge', absent.length);
+    },
+
+    async _loadMultiDayDash(days) {
+        const dates = [];
+        for (let i = 0; i < days; i++) {
+            dates.push(new Date(Date.now() - i * 86400000).toISOString().split('T')[0]);
+        }
+
+        const [stats, allRecords] = await Promise.all([
+            API.getTodayStats(),
+            Promise.all(dates.map(d => API.getAttendance(d))),
+        ]);
+
+        const total     = stats.total_users;
+        const label     = days === 7 ? 'This Week' : 'This Month';
+
+        // Build daily counts (unique users per day)
+        const dailyCounts = {};
+        dates.forEach((d, i) => {
+            dailyCounts[d] = new Set(allRecords[i].map(r => r.user_id)).size;
+        });
+
+        const totalCheckins = Object.values(dailyCounts).reduce((a, b) => a + b, 0);
+        const avgPresent    = totalCheckins / days;
+        const avgPercent    = total > 0 ? Math.round((avgPresent / total) * 100) : 0;
+
+        // Best day
+        const bestDay = Object.keys(dailyCounts).reduce((a, b) => dailyCounts[a] >= dailyCounts[b] ? a : b, dates[0]);
+        const bestDayLabel = new Date(bestDay + 'T00:00:00').toLocaleDateString('en-US',
+            { weekday: 'short', month: 'short', day: 'numeric' });
+
+        // Trend: compare first half vs second half of the range
+        const half = Math.floor(days / 2);
+        const recentTotal = dates.slice(0, half).reduce((s, d) => s + dailyCounts[d], 0);
+        const olderTotal  = dates.slice(half).reduce((s, d) => s + dailyCounts[d], 0);
+        const halfDiff    = recentTotal - olderTotal;
+
+        // Date label
+        this._setEl('stat-date', `${label} — ${dates[dates.length - 1]} → ${dates[0]}`);
+        this._setEl('hero-label', `Avg Present / Day`);
+
+        this._animateNum('stat-present',   Math.round(avgPresent));
+        this._animateNum('stat-total',     total);
+        this._animateNum('sec-currently',  Math.round(avgPresent));
+        this._animateNum('sec-checkout',   0);   // not tracked in multi-day view
+        this._animateNum('sec-absent',     total - Math.round(avgPresent));
+        this._setEl('hero-percent',    avgPercent + '%');
+        this._setEl('sec-absent-sub',  'avg not present');
+        this._setEl('sec-peak-label',  'Best Day');
+        this._setEl('sec-peak',        bestDayLabel);
+
+        const bar = document.getElementById('hero-bar-fill');
+        if (bar) setTimeout(() => { bar.style.width = Math.min(avgPercent, 100) + '%'; }, 120);
+
+        const card = document.getElementById('hero-card');
+        if (card) card.className = 'dashboard-hero-card ' +
+            (avgPercent >= 75 ? 'health-good' : avgPercent >= 50 ? 'health-warn' : 'health-critical');
+
+        const badge = document.getElementById('trend-badge');
+        const tIcon = document.getElementById('trend-icon');
+        const tText = document.getElementById('trend-text');
+        if (badge && tIcon && tText) {
+            if (halfDiff > 0) {
+                badge.className = 'trend-badge trend-up';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-up"></i>';
+                tText.innerText  = `Trending up this ${days === 7 ? 'week' : 'month'}`;
+            } else if (halfDiff < 0) {
+                badge.className = 'trend-badge trend-down';
+                tIcon.innerHTML = '<i class="fas fa-arrow-trend-down"></i>';
+                tText.innerText  = `Trending down this ${days === 7 ? 'week' : 'month'}`;
+            } else {
+                badge.className = 'trend-badge trend-neutral';
+                tIcon.innerHTML = '<i class="fas fa-minus"></i>';
+                tText.innerText  = 'Stable attendance';
+            }
+        }
+
+        this._setEl('chart-subtitle', `Daily attendance — ${label}`);
+        this._setEl('chart-meta',     totalCheckins + ' total check-ins');
+        this._drawDailyChart(dailyCounts, dates, total);
+
+        // Show today's check-ins in the recent panel
+        const todayRecs = allRecords[0];
+        const sorted = [...todayRecs].sort((a, b) => b.time.localeCompare(a.time));
+        this._renderCheckinList(sorted.slice(0, 10));
+        this._setEl('checkin-count-badge', todayRecs.length);
+
+        // Absent panel not meaningful for multi-day; show info message
+        const absentEl = document.getElementById('absent-list');
+        if (absentEl) absentEl.innerHTML =
+            '<div class="panel-empty"><i class="fas fa-calendar-check"></i> Switch to Today to see absent users</div>';
+        this._setEl('absent-count-badge', '—');
+    },
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    _setEl(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.innerText = text;
+    },
+
+    _animateNum(id, target) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const start = parseInt(el.innerText, 10) || 0;
+        if (start === target) { el.innerText = target; return; }
+        const steps = 16;
+        let step = 0;
+        const timer = setInterval(() => {
+            step++;
+            el.innerText = Math.round(start + (target - start) * (step / steps));
+            if (step >= steps) { el.innerText = target; clearInterval(timer); }
+        }, 28);
+    },
+
+    _fmtHour(h) {
+        if (h === 0)  return '12 am';
+        if (h < 12)   return h + ' am';
+        if (h === 12) return '12 pm';
+        return (h - 12) + ' pm';
+    },
+
+    _renderCheckinList(records) {
+        const el = document.getElementById('checkin-list');
+        if (!el) return;
+        if (!records || records.length === 0) {
+            el.innerHTML = '<div class="panel-empty"><i class="fas fa-clock"></i> No check-ins yet today</div>';
+            return;
+        }
+        el.innerHTML = records.map(r => {
+            const initial = r.name.charAt(0).toUpperCase();
+            return `<div class="checkin-item">
+                <div class="checkin-avatar">${initial}</div>
+                <div class="checkin-info">
+                    <span class="checkin-name">${r.name}</span>
+                    <span class="checkin-time"><i class="fas fa-clock"></i> ${r.time}</span>
+                </div>
+                <span class="checkin-tick"><i class="fas fa-circle-check"></i></span>
+            </div>`;
+        }).join('');
+    },
+
+    _renderAbsentList(users) {
+        const el = document.getElementById('absent-list');
+        if (!el) return;
+        if (!users || users.length === 0) {
+            el.innerHTML = '<div class="panel-empty"><i class="fas fa-circle-check" style="color:var(--success)"></i> All users marked!</div>';
+            return;
+        }
+        el.innerHTML = users.map(u => {
+            const initial = u.name.charAt(0).toUpperCase();
+            return `<div class="absent-item">
+                <div class="absent-avatar">${initial}</div>
+                <div class="absent-info">
+                    <span class="absent-name">${u.name}</span>
+                    <span class="absent-status"><i class="fas fa-circle-xmark"></i> Not marked</span>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    _drawHourlyChart(hourlyData, isEmpty) {
+        const canvas  = document.getElementById('hourly-chart');
+        const emptyEl = document.getElementById('chart-empty');
+        if (!canvas) return;
+
+        if (isEmpty) {
+            canvas.style.display = 'none';
+            if (emptyEl) emptyEl.style.display = 'flex';
+            return;
+        }
+        canvas.style.display = '';
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        const ctx  = canvas.getContext('2d');
+        const dpr  = window.devicePixelRatio || 1;
+        const cW   = canvas.parentElement.offsetWidth || 600;
+        const cH   = 200;
+
+        canvas.width  = cW * dpr;
+        canvas.height = cH * dpr;
+        canvas.style.width  = cW + 'px';
+        canvas.style.height = cH + 'px';
+        ctx.scale(dpr, dpr);
+
+        const W = cW, H = cH;
+        const pad = { top: 28, right: 12, bottom: 40, left: 34 };
+        const chartW = W - pad.left - pad.right;
+        const chartH = H - pad.top - pad.bottom;
+
+        // Show 6 am → 10 pm (17 slots)
+        const hours = Array.from({ length: 17 }, (_, i) => i + 6);
+        const vals  = hours.map(h => hourlyData[h] || 0);
+        const maxV  = Math.max(...vals, 1);
+        const slots = hours.length;
+        const slotW = chartW / slots;
+        const barW  = Math.max(slotW * 0.55, 4);
+
+        ctx.clearRect(0, 0, W, H);
+
+        // Grid lines
+        for (let i = 0; i <= 4; i++) {
+            const y = pad.top + (chartH / 4) * i;
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(pad.left, y);
+            ctx.lineTo(W - pad.right, y);
+            ctx.stroke();
+
+            if (i < 4) {
+                const lv = Math.round(maxV - (maxV / 4) * i);
+                ctx.fillStyle = 'rgba(161,169,181,0.45)';
+                ctx.font = '9px Inter, sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText(lv || '', pad.left - 4, y + 3);
+            }
+        }
+
+        // Bars
+        hours.forEach((hour, i) => {
+            const val  = vals[i];
+            const bH   = val > 0 ? Math.max((val / maxV) * chartH, 4) : 2;
+            const x    = pad.left + i * slotW + (slotW - barW) / 2;
+            const y    = pad.top + chartH - bH;
+
+            if (val > 0) {
+                const g = ctx.createLinearGradient(x, y, x, y + bH);
+                g.addColorStop(0, 'rgba(249,115,22,0.95)');
+                g.addColorStop(1, 'rgba(249,115,22,0.3)');
+                ctx.fillStyle = g;
+            } else {
+                ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            }
+
+            this._roundedBar(ctx, x, y, barW, bH, 3);
+
+            if (val > 0) {
+                ctx.fillStyle = 'rgba(255,255,255,0.85)';
+                ctx.font = '9px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(val, x + barW / 2, y - 4);
+            }
+
+            // Hour label — show every other label to avoid crowding
+            if (i % 2 === 0 || slots <= 10) {
+                const lbl = hour === 12 ? '12p' : hour < 12 ? hour + 'a' : (hour - 12) + 'p';
+                ctx.fillStyle = 'rgba(161,169,181,0.6)';
+                ctx.font = '9px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(lbl, x + barW / 2, H - pad.bottom + 14);
+            }
+        });
+    },
+
+    _drawDailyChart(dailyCounts, dates, totalUsers) {
+        const canvas  = document.getElementById('hourly-chart');
+        const emptyEl = document.getElementById('chart-empty');
+        if (!canvas) return;
+
+        const hasData = Object.values(dailyCounts).some(v => v > 0);
+        if (!hasData) {
+            canvas.style.display = 'none';
+            if (emptyEl) emptyEl.style.display = 'flex';
+            return;
+        }
+        canvas.style.display = '';
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const cW  = canvas.parentElement.offsetWidth || 600;
+        const cH  = 200;
+
+        canvas.width  = cW * dpr;
+        canvas.height = cH * dpr;
+        canvas.style.width  = cW + 'px';
+        canvas.style.height = cH + 'px';
+        ctx.scale(dpr, dpr);
+
+        const W = cW, H = cH;
+        const pad = { top: 28, right: 12, bottom: 40, left: 34 };
+        const chartW = W - pad.left - pad.right;
+        const chartH = H - pad.top - pad.bottom;
+
+        const ordered = [...dates].reverse();
+        const vals    = ordered.map(d => dailyCounts[d] || 0);
+        const maxV    = Math.max(...vals, totalUsers > 0 ? totalUsers : 1);
+        const slots   = ordered.length;
+        const slotW   = chartW / slots;
+        const barW    = Math.max(slotW * 0.55, 3);
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        ctx.clearRect(0, 0, W, H);
+
+        // Grid + capacity dashed line
+        for (let i = 0; i <= 4; i++) {
+            const y = pad.top + (chartH / 4) * i;
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
+        }
+        if (totalUsers > 0) {
+            const capY = pad.top + chartH - (totalUsers / maxV) * chartH;
+            ctx.strokeStyle = 'rgba(249,115,22,0.3)';
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(pad.left, capY); ctx.lineTo(W - pad.right, capY); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(249,115,22,0.55)';
+            ctx.font = '8px Inter, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('max', W - pad.right - 2, capY - 3);
+        }
+
+        // Bars
+        ordered.forEach((date, i) => {
+            const val     = vals[i];
+            const bH      = val > 0 ? Math.max((val / maxV) * chartH, 3) : 2;
+            const x       = pad.left + i * slotW + (slotW - barW) / 2;
+            const y       = pad.top + chartH - bH;
+            const isToday = date === todayStr;
+
+            if (val > 0) {
+                const g = ctx.createLinearGradient(x, y, x, y + bH);
+                g.addColorStop(0, isToday ? 'rgba(249,115,22,1)'   : 'rgba(249,115,22,0.7)');
+                g.addColorStop(1, isToday ? 'rgba(249,115,22,0.5)' : 'rgba(249,115,22,0.2)');
+                ctx.fillStyle = g;
+            } else {
+                ctx.fillStyle = 'rgba(255,255,255,0.04)';
+            }
+
+            this._roundedBar(ctx, x, y, barW, bH, 3);
+
+            // Value label — only if few bars
+            if (val > 0 && slots <= 14) {
+                ctx.fillStyle = 'rgba(255,255,255,0.75)';
+                ctx.font = '8px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(val, x + barW / 2, y - 4);
+            }
+
+            // Date label — skip some for month view
+            const showLabel = slots <= 10 || i % 5 === 0 || i === slots - 1 || isToday;
+            if (showLabel) {
+                const d = new Date(date + 'T00:00:00');
+                const lbl = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                ctx.fillStyle = isToday ? 'rgba(249,115,22,0.9)' : 'rgba(161,169,181,0.55)';
+                ctx.font = isToday ? 'bold 8px Inter, sans-serif' : '8px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(lbl, x + barW / 2, H - pad.bottom + 14);
+            }
+        });
+    },
+
+    _roundedBar(ctx, x, y, w, h, r) {
+        if (h <= 0) return;
+        if (h < r * 2) r = h / 2;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        ctx.fill();
+    },
+
+    _flashDashUpdate() {
+        document.querySelectorAll('.mini-stat-card').forEach(c => {
+            c.classList.remove('flash-update');
+            void c.offsetWidth; // reflow to restart animation
+            c.classList.add('flash-update');
+        });
+    },
+
+    // Cleanup on page unload
+    cleanup() {
+        this.stopScanning();
+    }
+};
+
+// Cleanup on page navigation (for single-page feel)
+window.addEventListener('beforeunload', () => {
+    App.cleanup();
+});
+
+================================================================================
+FILE: frontend/attendance.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Records | SAS - Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="animated-bg">
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-1"></div>
+    </div>
+
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="premium-logo">
+                <div class="premium-icon">
+                    <i class="fas fa-fingerprint"></i>
+                </div>
+                <div class="premium-text-box">
+                    <span class="premium-title">SAS</span>
+                    <span class="premium-dot">.</span>
+                </div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="scan.html"><i class="fas fa-camera"></i> Scan Face</a></li>
+                <li><a href="register.html"><i class="fas fa-user-plus"></i> Register</a></li>
+                <li><a href="attendance.html" class="active"><i class="fas fa-calendar-check"></i> Records</a></li>
+                <li><a href="stats.html"><i class="fas fa-chart-line"></i> Stats</a></li>
+            </ul>
+            <div class="nav-status">
+                <span class="status-dot"></span>
+                <span>System Online</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="page-header">
+            <h2><i class="fas fa-clipboard-list"></i> Attendance Log</h2>
+            <p>Full check-in history — filtered by date</p>
+        </div>
+
+        <div class="card">
+            <div class="filter-bar">
+                <div class="form-group" style="max-width: 300px;">
+                    <label for="date-filter"><i class="fas fa-calendar-alt"></i> Filter by Date</label>
+                    <input type="date" id="date-filter">
+                </div>
+                <div class="filter-stats">
+                    <div class="filter-stat">
+                        <span class="filter-stat-label">Total Records</span>
+                        <span class="filter-stat-value" id="record-count">—</span>
+                    </div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><i class="fas fa-hashtag"></i> User ID</th>
+                            <th><i class="fas fa-user"></i> Name</th>
+                            <th><i class="fas fa-calendar-day"></i> Date</th>
+                            <th><i class="fas fa-right-to-bracket"></i> Check-in</th>
+                            <th><i class="fas fa-right-from-bracket"></i> Check-out</th>
+                            <th><i class="fas fa-hourglass-half"></i> Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendance-body">
+                        <tr>
+                            <td colspan="6">
+                                <div class="spinner"></div> Loading…
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p><i class="fas fa-shield-alt"></i> All data remains local — your privacy is protected</p>
+        </div>
+    </footer>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.loadAttendance();
+
+            const dateFilter = document.getElementById('date-filter');
+            if (dateFilter) {
+                const today = new Date().toISOString().split('T')[0];
+                dateFilter.value = today;
+
+                dateFilter.addEventListener('change', async () => {
+                    const tbody = document.getElementById('attendance-body');
+                    tbody.innerHTML = '<tr><td colspan="4"><div class="spinner"></div> Loading…</td></tr>';
+                    const data = await API.getAttendance(dateFilter.value);
+                    if (data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)"><i class="fas fa-inbox"></i> No records for this date</td></tr>';
+                        document.getElementById('record-count').innerText = '0';
+                        return;
+                    }
+                    document.getElementById('record-count').innerText = data.length;
+
+                    function calcDuration(inTime, outTime) {
+                        if (!outTime) return '<span style="color:var(--warning);font-size:0.75rem"><i class="fas fa-circle-dot"></i> Still inside</span>';
+                        const [ih, im, is_] = inTime.split(':').map(Number);
+                        const [oh, om, os_] = outTime.split(':').map(Number);
+                        const diffSec = (oh * 3600 + om * 60 + os_) - (ih * 3600 + im * 60 + is_);
+                        if (diffSec <= 0) return '—';
+                        const h = Math.floor(diffSec / 3600);
+                        const m = Math.floor((diffSec % 3600) / 60);
+                        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                    }
+
+                    tbody.innerHTML = data.map(row => `
+                        <tr>
+                            <td><span class="user-id-badge">#${row.user_id}</span></td>
+                            <td><strong><i class="fas fa-user-circle"></i> ${row.name}</strong></td>
+                            <td><i class="fas fa-calendar-alt"></i> ${row.date}</td>
+                            <td><span class="time-badge checkin-badge"><i class="fas fa-right-to-bracket"></i> ${row.time}</span></td>
+                            <td>${row.checkout_time
+                                ? `<span class="time-badge checkout-badge"><i class="fas fa-right-from-bracket"></i> ${row.checkout_time}</span>`
+                                : `<span style="color:var(--text-muted);font-size:0.8rem">—</span>`
+                            }</td>
+                            <td>${calcDuration(row.time, row.checkout_time)}</td>
+                        </tr>
+                    `).join('');
+                });
+
+                dateFilter.dispatchEvent(new Event('change'));
+            }
+        });
+    </script>
+</body>
+
+</html>
+
+================================================================================
+FILE: frontend/index.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAS | Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="animated-bg">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-3"></div>
+        <canvas id="bg-canvas"></canvas>
+    </div>
+
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="premium-logo">
+                <div class="premium-icon">
+                    <i class="fas fa-fingerprint"></i>
+                </div>
+                <div class="premium-text-box">
+                    <span class="premium-title">SAS</span>
+                    <span class="premium-dot">.</span>
+                </div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="scan.html"><i class="fas fa-camera"></i> Scan Face</a></li>
+                <li><a href="register.html"><i class="fas fa-user-plus"></i> Register</a></li>
+                <li><a href="attendance.html"><i class="fas fa-calendar-check"></i> Records</a></li>
+                <li><a href="stats.html"><i class="fas fa-chart-line"></i> Stats</a></li>
+            </ul>
+            <div class="nav-status">
+                <span class="status-dot"></span>
+                <span>System Online</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container centered">
+        <section class="hero">
+            <div class="hero-badge">
+                <span class="hero-badge-dot"></span>
+                <i class="fas fa-microchip"></i>
+                AI-Powered Biometric System
+                <span class="new-badge">v2.0</span>
+            </div>
+            <h1>Smart Attendance<br>System</h1>
+            <p>Face recognition-based attendance tracking using ArcFace deep learning — real-time, accurate, and
+                effortless.</p>
+            <div class="actions">
+                <a href="scan.html" class="btn btn-primary">
+                    <i class="fas fa-arrow-right"></i> Start Scanning
+                </a>
+                <a href="register.html" class="btn btn-outline">
+                    <i class="fas fa-plus"></i> New Registration
+                </a>
+            </div>
+
+            <div class="stats-preview">
+                <div class="stat-preview-item">
+                    <span class="stat-preview-value">99.8%</span>
+                    <span class="stat-preview-label">Accuracy Rate</span>
+                </div>
+                <div class="stat-preview-divider"></div>
+                <div class="stat-preview-item">
+                    <span class="stat-preview-value">&lt;1s</span>
+                    <span class="stat-preview-label">Recognition Speed</span>
+                </div>
+                <div class="stat-preview-divider"></div>
+                <div class="stat-preview-item">
+                    <span class="stat-preview-value">512-dim</span>
+                    <span class="stat-preview-label">Face Embedding</span>
+                </div>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-tile">
+                    <div class="feature-icon"><i class="fas fa-brain"></i></div>
+                    <h4>ArcFace Detection</h4>
+                    <p>512-dim face embeddings via InsightFace buffalo_l for industry-grade recognition accuracy.</p>
+                    <div class="feature-hover-line"></div>
+                </div>
+                <div class="feature-tile">
+                    <div class="feature-icon"><i class="fas fa-bolt"></i></div>
+                    <h4>Instant Log</h4>
+                    <p>Every scan is timestamped and written to a persistent log — source of truth for all records.</p>
+                    <div class="feature-hover-line"></div>
+                </div>
+                <div class="feature-tile">
+                    <div class="feature-icon"><i class="fas fa-chart-simple"></i></div>
+                    <h4>Live Dashboard</h4>
+                    <p>Real-time attendance stats, daily summaries, and full attendance history at a glance.</p>
+                    <div class="feature-hover-line"></div>
+                </div>
+            </div>
+
+            <div class="architecture-section">
+                <div class="section-header">
+                    <h2>System Architecture</h2>
+                    <p>How the AI-Powered Biometric System Works</p>
+                </div>
+
+                <div class="arch-flow">
+                    <div class="arch-step">
+                        <div class="arch-icon"><i class="fas fa-camera"></i></div>
+                        <h4>1. Image Capture</h4>
+                        <p>High-resolution webcam frame is captured and encoded in base64.</p>
+                    </div>
+                    <i class="fas fa-arrow-right arch-arrow"></i>
+                    <div class="arch-step">
+                        <div class="arch-icon"><i class="fas fa-bolt"></i></div>
+                        <h4>2. Fast API Backend</h4>
+                        <p>Image is decoded and processed by the high-performance FastAPI server.</p>
+                    </div>
+                    <i class="fas fa-arrow-right arch-arrow"></i>
+                    <div class="arch-step">
+                        <div class="arch-icon"><i class="fas fa-crop-simple"></i></div>
+                        <h4>3. Face Registration & Alignment</h4>
+                        <p>RetinaFace detects the face, while the aligner crops and normalizes it.</p>
+                    </div>
+                    <i class="fas fa-arrow-right arch-arrow"></i>
+                    <div class="arch-step">
+                        <div class="arch-icon"><i class="fas fa-fingerprint"></i></div>
+                        <h4>4. InsightFace ArcFace</h4>
+                        <p>buffalo_l model extracts a 512-dimensional embedding vector.</p>
+                    </div>
+                    <i class="fas fa-arrow-right arch-arrow"></i>
+                    <div class="arch-step">
+                        <div class="arch-icon"><i class="fas fa-database"></i></div>
+                        <h4>5. SQLite Matching</h4>
+                        <p>Cosine similarity matches the vector against stored embeddings instantly.</p>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <div class="tech-stack-section mt-5">
+                <div class="section-header">
+                    <h2>Technology Stack</h2>
+                    <p>Powered by robust and high-performance frameworks.</p>
+                </div>
+
+                <div class="tech-grid">
+                    <div class="tech-card">
+                        <div class="tech-icon"><i class="fab fa-python"></i></div>
+                        <div class="tech-info">
+                            <h4>Python 3</h4>
+                            <p>Core programming language natively handling the entire backend logic natively.</p>
+                        </div>
+                    </div>
+                    <div class="tech-card">
+                        <div class="tech-icon"><i class="fas fa-server"></i></div>
+                        <div class="tech-info">
+                            <h4>FastAPI</h4>
+                            <p>High-performance asynchronous web framework hosting REST APIs.</p>
+                        </div>
+                    </div>
+                    <div class="tech-card">
+                        <div class="tech-icon"><i class="fas fa-eye"></i></div>
+                        <div class="tech-info">
+                            <h4>OpenCV & InsightFace</h4>
+                            <p>State-of-the-art computer vision algorithms efficiently extracting facial embeddings.</p>
+                        </div>
+                    </div>
+                    <div class="tech-card">
+                        <div class="tech-icon"><i class="fas fa-database"></i></div>
+                        <div class="tech-info">
+                            <h4>SQLite</h4>
+                            <p>Lightweight, persistent database mapping out user profiles natively.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="api-reference-section mt-5">
+                <div class="section-header">
+                    <h2>API Integration Ready</h2>
+                    <p>Fully functional RESTful endpoints out of the box.</p>
+                </div>
+                <div class="api-list">
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-endpoint">/users</span>
+                        <span class="api-desc">Registers a new user and natively stores target base64 image data.</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method post">POST</span>
+                        <span class="api-endpoint">/attendance/scan</span>
+                        <span class="api-desc">Processes incoming camera frames to match and mark records
+                            natively.</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method get">GET</span>
+                        <span class="api-endpoint">/attendance</span>
+                        <span class="api-desc">Retrieves securely logged historical attendance records
+                            seamlessly.</span>
+                    </div>
+                    <div class="api-item">
+                        <span class="api-method delete">DELETE</span>
+                        <span class="api-endpoint">/users/{user_id}</span>
+                        <span class="api-desc">Action deep cascading deletion of datasets per respective ID
+                            values.</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p><i class="fas fa-shield-alt"></i> All data remains local — your privacy is protected</p>
+        </div>
+    </footer>
+    <script>
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        let w, h, particles;
+
+        function init() {
+            w = canvas.width = window.innerWidth;
+            h = canvas.height = window.innerHeight;
+            particles = [];
+            const numParticles = Math.floor((w * h) / 3000);
+            for (let i = 0; i < numParticles; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        class Particle {
+            constructor() {
+                this.x = Math.random() * w;
+                this.y = Math.random() * h;
+                this.baseX = this.x;
+                this.baseY = this.y;
+                this.size = Math.random() * 2 + 0.5;
+                this.density = (Math.random() * 30) + 1;
+            }
+
+            draw() {
+                ctx.fillStyle = 'rgba(249, 115, 22, 0.4)';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            update() {
+                let dx = mouse.x - this.x;
+                let dy = mouse.y - this.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                let forceDirectionX = dx / distance;
+                let forceDirectionY = dy / distance;
+                let maxDistance = 150;
+                let force = (maxDistance - distance) / maxDistance;
+                let directionX = forceDirectionX * force * this.density;
+                let directionY = forceDirectionY * force * this.density;
+
+                if (distance < maxDistance) {
+                    this.x -= directionX;
+                    this.y -= directionY;
+                } else {
+                    if (this.x !== this.baseX) {
+                        let dx = this.x - this.baseX;
+                        this.x -= dx / 15;
+                    }
+                    if (this.y !== this.baseY) {
+                        let dy = this.y - this.baseY;
+                        this.y -= dy / 15;
+                    }
+                }
+            }
+        }
+
+        const mouse = {
+            x: null,
+            y: null
+        };
+
+        window.addEventListener('mousemove', function (event) {
+            mouse.x = event.x;
+            mouse.y = event.y;
+        });
+
+        window.addEventListener('mouseout', function () {
+            mouse.x = undefined;
+            mouse.y = undefined;
+        });
+
+        window.addEventListener('resize', function () {
+            init();
+        });
+
+        function animate() {
+            ctx.clearRect(0, 0, w, h);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].draw();
+                particles[i].update();
+            }
+            for (let a = 0; a < particles.length; a++) {
+                for (let b = a; b < particles.length; b++) {
+                    let dx = particles[a].x - particles[b].x;
+                    let dy = particles[a].y - particles[b].y;
+                    let distance = dx * dx + dy * dy;
+                    if (distance < 6000) {
+                        let opacityValue = 1 - (distance / 6000);
+                        ctx.strokeStyle = 'rgba(249, 115, 22,' + opacityValue * 0.15 + ')';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(particles[a].x, particles[a].y);
+                        ctx.lineTo(particles[b].x, particles[b].y);
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
+        init();
+        animate();
+    </script>
+</body>
+
+</html>
+
+================================================================================
+FILE: frontend/register.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register | SAS - Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="animated-bg">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-3"></div>
+    </div>
+
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="premium-logo">
+                <div class="premium-icon">
+                    <i class="fas fa-fingerprint"></i>
+                </div>
+                <div class="premium-text-box">
+                    <span class="premium-title">SAS</span>
+                    <span class="premium-dot">.</span>
+                </div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="scan.html"><i class="fas fa-camera"></i> Scan Face</a></li>
+                <li><a href="register.html" class="active"><i class="fas fa-user-plus"></i> Register</a></li>
+                <li><a href="attendance.html"><i class="fas fa-calendar-check"></i> Records</a></li>
+                <li><a href="stats.html"><i class="fas fa-chart-line"></i> Stats</a></li>
+            </ul>
+            <div class="nav-status">
+                <span class="status-dot"></span>
+                <span>System Online</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="page-header">
+            <h2><i class="fas fa-user-graduate"></i> Register New User</h2>
+            <p>Add a face to the recognition database — capture 2–5 angles for best accuracy</p>
+        </div>
+
+        <div class="card">
+            <div class="step-indicator">
+                <div class="step active">
+                    <div class="step-num">1</div>
+                    <span class="step-label"><i class="fas fa-pen"></i> Enter Name</span>
+                </div>
+                <div class="step active">
+                    <div class="step-num">2</div>
+                    <span class="step-label"><i class="fas fa-camera"></i> Capture Face</span>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <span class="step-label"><i class="fas fa-save"></i> Register</span>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="username"><i class="fas fa-user"></i> Full Name</label>
+                <input type="text" id="username" placeholder="e.g., John Doe" required autocomplete="off">
+                <div class="input-hint">Enter the full name as it should appear in records</div>
+            </div>
+
+            <div class="video-wrapper small">
+                <video id="webcam" autoplay playsinline></video>
+                <div class="face-guide"></div>
+                <div class="cam-overlay">
+                    <span class="cam-text">Position your face here</span>
+                </div>
+            </div>
+
+            <div class="thumbnail-grid" id="thumbnails"></div>
+            <div class="capture-count" id="capture-count">
+                <i class="fas fa-images"></i> 0/5 captured
+            </div>
+
+            <div class="registration-controls">
+                <button id="capture-btn" class="btn btn-secondary">
+                    <i class="fas fa-camera"></i> Capture Image (0/5)
+                </button>
+                <button id="submit-reg" class="btn btn-primary" disabled>
+                    <i class="fas fa-check-circle"></i> Register User
+                </button>
+            </div>
+
+            <div class="reg-tips">
+                <div class="tip-item"><i class="fas fa-lightbulb"></i> Use good lighting</div>
+                <div class="tip-item"><i class="fas fa-face-smile"></i> Look straight at camera</div>
+                <div class="tip-item"><i class="fas fa-repeat"></i> Capture different angles</div>
+            </div>
+
+            <div id="reg-status" class="status-box hidden"></div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p><i class="fas fa-shield-alt"></i> All data remains local — your privacy is protected</p>
+        </div>
+    </footer>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            App.initRegisterPage();
+        });
+        window.addEventListener('beforeunload', () => {
+            App.stopWebcam();
+        });
+    </script>
+</body>
+
+</html>
+
+================================================================================
+FILE: frontend/scan.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scan Face | SAS - Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="animated-bg">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+    </div>
+
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="premium-logo">
+                <div class="premium-icon">
+                    <i class="fas fa-fingerprint"></i>
+                </div>
+                <div class="premium-text-box">
+                    <span class="premium-title">SAS</span>
+                    <span class="premium-dot">.</span>
+                </div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="scan.html" class="active"><i class="fas fa-camera"></i> Scan Face</a></li>
+                <li><a href="register.html"><i class="fas fa-user-plus"></i> Register</a></li>
+                <li><a href="attendance.html"><i class="fas fa-calendar-check"></i> Records</a></li>
+                <li><a href="stats.html"><i class="fas fa-chart-line"></i> Stats</a></li>
+            </ul>
+            <div class="nav-status">
+                <span class="status-dot"></span>
+                <span>System Online</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container scan-page-container">
+        <div class="scan-page-label">
+            <div class="label-icon"><i class="fas fa-qrcode"></i></div>
+            <div>
+                <h2>Face Scan Terminal</h2>
+                <p>Position your face inside the oval, then press Scan</p>
+            </div>
+            <div class="guide-tip">
+                <i class="fas fa-lightbulb"></i> Good lighting improves accuracy
+            </div>
+        </div>
+
+        <div class="scan-layout">
+            <div class="camera-col">
+                <div class="camera-frame" id="camera-frame">
+                    <video id="webcam" autoplay playsinline></video>
+                    <div class="scan-corners">
+                        <span class="sc tl"></span>
+                        <span class="sc tr"></span>
+                        <span class="sc bl"></span>
+                        <span class="sc br"></span>
+                    </div>
+                    <div class="face-target-ring">
+                        <div class="ring-text">FACE</div>
+                    </div>
+                    <div class="scan-sweep" id="scan-sweep"></div>
+                    <div class="live-badge">
+                        <span class="live-pulse"></span>
+                        LIVE
+                    </div>
+                    <div class="resolution-badge">640x480</div>
+                </div>
+                <div class="scan-btn-row">
+                    <button id="scan-btn" class="btn btn-primary btn-scan-face" disabled>
+                        <i class="fas fa-camera"></i> Starting camera…
+                    </button>
+                </div>
+                <p class="camera-caption">
+                    <i class="fas fa-info-circle"></i> Keep your face inside the oval, then press Scan
+                </p>
+            </div>
+
+            <div class="info-col">
+                <div class="scan-result-card state-init" id="scan-result-card">
+                    <div class="result-icon" id="result-icon">
+                        <i class="fas fa-circle"></i>
+                    </div>
+                    <h2 id="status-message">Ready</h2>
+                    <p id="status-detail">Camera initializing — please wait</p>
+                    <div class="result-progress">
+                        <div class="progress-bar"></div>
+                    </div>
+                </div>
+
+                <div id="recognized-user"></div>
+
+                <div class="log-panel">
+                    <div class="log-panel-header">
+                        <h4><i class="fas fa-history"></i> Recent Activity</h4>
+                        <button id="log-refresh-btn" class="btn-icon" title="Refresh">
+                            <i class="fas fa-rotate-right"></i>
+                        </button>
+                    </div>
+                    <div id="log-entries">
+                        <p class="log-empty">
+                            <i class="fas fa-clock"></i> No recent activity
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p><i class="fas fa-shield-alt"></i> All data remains local — your privacy is protected</p>
+        </div>
+    </footer>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => App.initScanPage());
+        window.addEventListener('beforeunload', () => App.stopWebcam());
+    </script>
+</body>
+
+</html>
+
+================================================================================
+FILE: frontend/stats.html
+================================================================================
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stats | SAS - Smart Attendance System</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="animated-bg">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-3"></div>
+    </div>
+
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="premium-logo">
+                <div class="premium-icon">
+                    <i class="fas fa-fingerprint"></i>
+                </div>
+                <div class="premium-text-box">
+                    <span class="premium-title">SAS</span>
+                    <span class="premium-dot">.</span>
+                </div>
+            </a>
+            <ul class="nav-links">
+                <li><a href="scan.html"><i class="fas fa-camera"></i> Scan Face</a></li>
+                <li><a href="register.html"><i class="fas fa-user-plus"></i> Register</a></li>
+                <li><a href="attendance.html"><i class="fas fa-calendar-check"></i> Records</a></li>
+                <li><a href="stats.html" class="active"><i class="fas fa-chart-line"></i> Stats</a></li>
+            </ul>
+            <div class="nav-status">
+                <span class="status-dot"></span>
+                <span>System Online</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+
+        <!-- Page header with time range toggle -->
+        <div class="dash-header">
+            <div class="dash-header-left">
+                <h2><i class="fas fa-chart-pie"></i> Attendance Dashboard</h2>
+                <p id="stat-date"><i class="fas fa-calendar-alt"></i> Loading…</p>
+            </div>
+            <div class="dash-controls">
+                <div class="time-range-toggle">
+                    <button class="time-btn active" data-range="today">Today</button>
+                    <button class="time-btn" data-range="week">This Week</button>
+                    <button class="time-btn" data-range="month">This Month</button>
+                </div>
+                <button id="refresh-btn" class="btn btn-secondary btn-sm">
+                    <i class="fas fa-rotate-right" id="refresh-icon"></i> Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Hero metric card -->
+        <div class="dashboard-hero-card health-good" id="hero-card">
+            <div class="hero-content">
+                <div class="hero-left">
+                    <div class="hero-label" id="hero-label">Present Today</div>
+                    <div class="hero-big-number">
+                        <span id="stat-present" class="hero-num">—</span>
+                        <span class="hero-sep">/</span>
+                        <span id="stat-total" class="hero-denom">—</span>
+                    </div>
+                    <div class="trend-badge trend-neutral" id="trend-badge">
+                        <span id="trend-icon"><i class="fas fa-minus"></i></span>
+                        <span id="trend-text">Loading…</span>
+                    </div>
+                </div>
+                <div class="hero-right">
+                    <div class="hero-percent-label">
+                        <span id="hero-rate-label">Attendance Rate</span>
+                        <strong id="hero-percent">—</strong>
+                    </div>
+                    <div class="attendance-bar-track">
+                        <div class="attendance-bar-fill" id="hero-bar-fill" style="width:0%">
+                            <div class="bar-shimmer"></div>
+                        </div>
+                    </div>
+                    <div class="bar-legend">
+                        <span><i class="fas fa-circle present-dot"></i> Present</span>
+                        <span><i class="fas fa-circle absent-dot"></i> Absent</span>
+                    </div>
+                </div>
+            </div>
+            <div class="hero-glow"></div>
+        </div>
+
+        <!-- Secondary metrics row -->
+        <div class="secondary-stats-row">
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon green">
+                    <i class="fas fa-building-user"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-currently">—</div>
+                    <div class="mini-stat-label">Currently Inside</div>
+                    <div class="mini-stat-sub">Checked in, not out yet</div>
+                </div>
+            </div>
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon purple">
+                    <i class="fas fa-right-from-bracket"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-checkout">—</div>
+                    <div class="mini-stat-label">Checked Out</div>
+                    <div class="mini-stat-sub">Left for the day</div>
+                </div>
+            </div>
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon red">
+                    <i class="fas fa-user-clock"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-absent">—</div>
+                    <div class="mini-stat-label">Not Yet Arrived</div>
+                    <div class="mini-stat-sub" id="sec-absent-sub">As of now</div>
+                </div>
+            </div>
+            <div class="mini-stat-card">
+                <div class="mini-stat-icon orange">
+                    <i class="fas fa-clock"></i>
+                </div>
+                <div class="mini-stat-body">
+                    <div class="mini-stat-value" id="sec-peak">—</div>
+                    <div class="mini-stat-label" id="sec-peak-label">Peak Check-in Hour</div>
+                    <div class="mini-stat-sub">Most active time</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hourly/Daily chart panel -->
+        <div class="chart-panel">
+            <div class="chart-panel-header">
+                <div>
+                    <h4><i class="fas fa-chart-column"></i> Check-in Distribution</h4>
+                    <span class="chart-subtitle" id="chart-subtitle">Check-ins by hour — Today</span>
+                </div>
+                <div class="chart-panel-meta" id="chart-meta">— check-ins</div>
+            </div>
+            <div class="chart-canvas-wrapper">
+                <canvas id="hourly-chart"></canvas>
+                <div id="chart-empty" class="chart-empty" style="display:none">
+                    <i class="fas fa-chart-bar"></i>
+                    <p>No check-in data for this period</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom two-column panels -->
+        <div class="bottom-panels-grid">
+
+            <!-- Recent check-ins -->
+            <div class="bottom-panel card">
+                <div class="bottom-panel-header">
+                    <h4>
+                        <i class="fas fa-circle-check" style="color:var(--success)"></i>
+                        Recent Check-ins
+                    </h4>
+                    <span class="panel-badge" id="checkin-count-badge">0</span>
+                </div>
+                <div id="checkin-list" class="bottom-panel-body">
+                    <div class="panel-empty">
+                        <i class="fas fa-clock"></i> No check-ins yet today
+                    </div>
+                </div>
+            </div>
+
+            <!-- Not yet marked -->
+            <div class="bottom-panel card">
+                <div class="bottom-panel-header">
+                    <h4>
+                        <i class="fas fa-user-clock" style="color:var(--warning)"></i>
+                        Not Yet Marked
+                    </h4>
+                    <span class="panel-badge panel-badge-warn" id="absent-count-badge">0</span>
+                </div>
+                <div id="absent-list" class="bottom-panel-body">
+                    <div class="panel-empty">
+                        <i class="fas fa-circle-check" style="color:var(--success)"></i> All users marked!
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Info panel -->
+        <div class="info-panel">
+            <div class="info-panel-icon"><i class="fas fa-sync-alt"></i></div>
+            <div class="info-panel-content">
+                <h4>Auto-Refresh Active</h4>
+                <p>Dashboard updates every 30 seconds. Last updated: <span id="last-updated">—</span></p>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p><i class="fas fa-shield-alt"></i> All data remains local — your privacy is protected</p>
+        </div>
+    </footer>
+
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+    <script>
+        window.addEventListener('load', () => {
+            // Time range toggle
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    App._statsRange = btn.dataset.range;
+                    App.loadStats();
+                });
+            });
+
+            // Refresh button
+            document.getElementById('refresh-btn').addEventListener('click', () => {
+                const icon = document.getElementById('refresh-icon');
+                if (icon) {
+                    icon.classList.add('fa-spin');
+                    setTimeout(() => icon.classList.remove('fa-spin'), 1000);
+                }
+                App.loadStats();
+                document.getElementById('last-updated').innerText = new Date().toLocaleTimeString();
+            });
+
+            // Redraw chart on window resize
+            let resizeTimer;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => App.loadStats(), 300);
+            });
+
+            // Initial load
+            App._statsRange = 'today';
+            App.loadStats();
+            document.getElementById('last-updated').innerText = new Date().toLocaleTimeString();
+
+            // Auto-refresh every 30s
+            setInterval(() => {
+                App.loadStats();
+                document.getElementById('last-updated').innerText = new Date().toLocaleTimeString();
+            }, 30000);
+        });
+    </script>
+</body>
+
+</html>
+
+
+================================================================================
+FILE: frontend/styles.css
+================================================================================
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   CSS Variables - Premium Dark Theme
+───────────────────────────────────────────────────────────────────────────── */
+:root {
+    --bg-dark: #05070a;
+    --bg-card: #0a0e14;
+    --bg-elevated: #12161f;
+    --primary: #f97316;
+    --primary-dark: #ea580c;
+    --primary-light: #fb923c;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --error: #ef4444;
+    --info: #3b82f6;
+    --text-primary: #ffffff;
+    --text-secondary: #a1a9b5;
+    --text-muted: #4a525f;
+    --border: #1e2530;
+    --glass-bg: rgba(10, 14, 20, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.06);
+    --gradient-primary: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+    --gradient-fire: linear-gradient(135deg, #f97316 0%, #f43f5e 100%);
+    --gradient-cyber: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.65);
+    --shadow-glow: 0 0 24px rgba(249, 115, 22, 0.35);
+    --shadow-glow-sm: 0 0 12px rgba(249, 115, 22, 0.2);
+    --radius-sm: 0.5rem;
+    --radius-md: 0.875rem;
+    --radius-lg: 1.25rem;
+    --radius-xl: 1.75rem;
+    --navbar-h: 70px;
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Animated Background - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.animated-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: -2;
+    overflow: hidden;
+}
+
+.gradient-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.4;
+    animation: float 20s ease-in-out infinite;
+}
+
+.orb-1 {
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(249, 115, 22, 0.4), transparent);
+    top: -150px;
+    left: -150px;
+    animation-delay: 0s;
+}
+
+.orb-2 {
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(102, 126, 234, 0.3), transparent);
+    bottom: -200px;
+    right: -200px;
+    animation-delay: 5s;
+}
+
+.orb-3 {
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.3), transparent);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    animation-delay: 10s;
+}
+
+@keyframes float {
+
+    0%,
+    100% {
+        transform: translate(0, 0) scale(1);
+    }
+
+    33% {
+        transform: translate(30px, -30px) scale(1.05);
+    }
+
+    66% {
+        transform: translate(-20px, 20px) scale(0.95);
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Premium Logo Redesign
+───────────────────────────────────────────────────────────────────────────── */
+.premium-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+    transition: var(--transition);
+}
+
+.premium-logo:hover .premium-icon {
+    box-shadow: 0 0 15px rgba(249, 115, 22, 0.4);
+    transform: scale(1.05);
+}
+
+.premium-logo:hover .premium-dot {
+    color: var(--primary-light);
+    transform: scale(1.2);
+}
+
+.premium-icon {
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.15) 0%, rgba(234, 88, 12, 0.3) 100%);
+    border: 1px solid rgba(249, 115, 22, 0.4);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+    color: var(--primary);
+    transition: var(--transition);
+    box-shadow: inset 0 0 8px rgba(249, 115, 22, 0.1);
+}
+
+.premium-text-box {
+    display: flex;
+    align-items: baseline;
+}
+
+.premium-title {
+    font-size: 1.7rem;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+    background: linear-gradient(to right, #ffffff, #e2e8f0);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+}
+
+.premium-dot {
+    font-size: 1.9rem;
+    font-weight: 900;
+    color: var(--primary);
+    line-height: 0;
+    transition: var(--transition);
+    text-shadow: 0 0 10px rgba(249, 115, 22, 0.5);
+    margin-left: 1px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Tech Stack & API Reference - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.mt-5 {
+    margin-top: 5rem;
+}
+
+.tech-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.tech-card {
+    background: rgba(18, 22, 31, 0.6);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    transition: var(--transition);
+}
+
+.tech-card:hover {
+    border-color: rgba(249, 115, 22, 0.3);
+    background: rgba(18, 22, 31, 0.9);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-md);
+}
+
+.tech-icon {
+    width: 50px;
+    height: 50px;
+    background: rgba(249, 115, 22, 0.1);
+    color: var(--primary);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+}
+
+.tech-info h4 {
+    font-size: 1.05rem;
+    margin-bottom: 0.25rem;
+    color: var(--text-primary);
+}
+
+.tech-info p {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.api-list {
+    background: rgba(10, 14, 20, 0.6);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.api-item {
+    display: flex;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid var(--glass-border);
+    flex-wrap: wrap;
+    gap: 1rem;
+    transition: background 0.2s;
+}
+
+.api-item:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.api-item:last-child {
+    border-bottom: none;
+}
+
+.api-method {
+    font-size: 0.75rem;
+    font-weight: 800;
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    letter-spacing: 1px;
+}
+
+.api-method.post {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.api-method.get {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--info);
+}
+
+.api-method.delete {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--error);
+}
+
+.api-endpoint {
+    font-family: monospace;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+}
+
+.api-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+@media (max-width: 768px) {
+    .api-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .api-desc {
+        margin-left: 0;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Architecture Section - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.architecture-section {
+    margin-top: 6rem;
+    padding: 3rem 2rem;
+    background: rgba(10, 14, 20, 0.4);
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 0 40px rgba(249, 115, 22, 0.05);
+}
+
+.section-header {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
+.section-header h2 {
+    font-size: 2.2rem;
+    font-weight: 800;
+    margin-bottom: 0.5rem;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.section-header p {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+}
+
+.arch-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.arch-step {
+    flex: 1;
+    min-width: 200px;
+    background: rgba(18, 22, 31, 0.8);
+    border: 1px solid var(--glass-border);
+    padding: 1.5rem;
+    border-radius: var(--radius-lg);
+    text-align: center;
+    transition: var(--transition);
+    position: relative;
+    z-index: 1;
+}
+
+.arch-step:hover {
+    transform: translateY(-5px);
+    border-color: rgba(249, 115, 22, 0.3);
+    box-shadow: var(--shadow-glow-sm);
+    z-index: 2;
+}
+
+.arch-icon {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    background: rgba(249, 115, 22, 0.1);
+    border: 1px solid rgba(249, 115, 22, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--primary);
+}
+
+.arch-step h4 {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.arch-step p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.arch-arrow {
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    animation: bounceRight 2s infinite;
+}
+
+@keyframes bounceRight {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    50% {
+        transform: translateX(5px);
+        color: var(--primary);
+    }
+}
+
+@media (max-width: 900px) {
+    .arch-flow {
+        flex-direction: column;
+    }
+
+    .arch-arrow {
+        transform: rotate(90deg);
+        animation: bounceDown 2s infinite;
+    }
+
+    @keyframes bounceDown {
+
+        0%,
+        100% {
+            transform: translateY(0) rotate(90deg);
+        }
+
+        50% {
+            transform: translateY(5px) rotate(90deg);
+            color: var(--primary);
+        }
+    }
+}
+
+#bg-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Reset + Body
+───────────────────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: var(--bg-dark);
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.03) 1px, transparent 0);
+    background-size: 40px 40px;
+    color: var(--text-primary);
+    min-height: 100vh;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(249, 115, 22, 0.45);
+    border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 2rem;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Navbar - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.navbar {
+    height: var(--navbar-h);
+    background: rgba(5, 7, 10, 0.92);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--glass-border);
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+}
+
+.navbar::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(249, 115, 22, 0.4) 50%, transparent 100%);
+}
+
+.navbar .container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -1px;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.logo i {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    font-size: 1.6rem;
+}
+
+.logo span {
+    background: var(--gradient-fire);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.nav-links {
+    display: flex;
+    gap: 0.5rem;
+    list-style: none;
+}
+
+.nav-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.875rem;
+    padding: 0.5rem 1.2rem;
+    border-radius: 0.5rem;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.nav-links a i {
+    font-size: 0.9rem;
+}
+
+.nav-links a:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-links a.active {
+    color: var(--primary);
+    background: rgba(249, 115, 22, 0.1);
+    position: relative;
+}
+
+.nav-links a.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 2px;
+    background: var(--gradient-primary);
+    border-radius: 99px;
+}
+
+.nav-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1rem;
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: 2rem;
+    font-size: 0.75rem;
+    color: var(--success);
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--success);
+    border-radius: 50%;
+    animation: pulse-green 2s ease-in-out infinite;
+}
+
+@keyframes pulse-green {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.5;
+        transform: scale(1.2);
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Buttons - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.btn {
+    padding: 0.75rem 1.8rem;
+    border-radius: 0.75rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    cursor: pointer;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    position: relative;
+    overflow: hidden;
+    transition: var(--transition);
+    letter-spacing: 0.01em;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transition: left 0.5s ease;
+}
+
+.btn:hover::before {
+    left: 100%;
+}
+
+.btn-primary {
+    background: var(--gradient-primary);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);
+}
+
+.btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(249, 115, 22, 0.4);
+}
+
+.btn-secondary {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    border-color: var(--primary);
+    background: rgba(249, 115, 22, 0.1);
+    transform: translateY(-1px);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid rgba(249, 115, 22, 0.5);
+    color: var(--primary);
+}
+
+.btn-outline:hover:not(:disabled) {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(249, 115, 22, 0.3);
+}
+
+.btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Cards - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--shadow-md);
+    transition: var(--transition);
+    margin-top: 2rem;
+}
+
+.card:hover {
+    border-color: rgba(249, 115, 22, 0.3);
+    box-shadow: var(--shadow-lg), 0 0 32px rgba(249, 115, 22, 0.1);
+    transform: translateY(-4px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Hero Section - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.hero {
+    text-align: center;
+    padding: 5rem 2rem 3rem;
+}
+
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: rgba(249, 115, 22, 0.12);
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    color: var(--primary-light);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.45rem 1.1rem;
+    border-radius: 99px;
+    margin-bottom: 1.75rem;
+    backdrop-filter: blur(4px);
+}
+
+.new-badge {
+    background: var(--gradient-primary);
+    color: white;
+    padding: 0.2rem 0.6rem;
+    border-radius: 99px;
+    font-size: 0.65rem;
+    margin-left: 0.5rem;
+}
+
+.hero h1 {
+    font-size: 4rem;
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -2px;
+    margin-bottom: 1.25rem;
+    background: linear-gradient(135deg, #ffffff 0%, #e6edf3 40%, var(--primary-light) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.hero p {
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+    margin-bottom: 2rem;
+    max-width: 560px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.7;
+}
+
+.actions {
+    display: flex;
+    gap: 1.2rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 3rem;
+}
+
+/* Stats Preview - Hardcoded Element */
+.stats-preview {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 2rem;
+    margin: 2rem auto 3rem;
+    padding: 1.5rem 2rem;
+    background: rgba(10, 14, 20, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 2rem;
+    max-width: 450px;
+}
+
+.stat-preview-item {
+    text-align: center;
+}
+
+.stat-preview-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 800;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.stat-preview-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.stat-preview-divider {
+    width: 1px;
+    height: 30px;
+    background: var(--border);
+}
+
+/* Feature Grid - Premium */
+.feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    max-width: 1000px;
+    margin: 2rem auto 0;
+}
+
+.feature-tile {
+    background: rgba(10, 14, 20, 0.7);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.75rem;
+    text-align: left;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.feature-tile::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--gradient-primary);
+    transform: scaleX(0);
+    transition: transform 0.4s ease;
+    transform-origin: left;
+}
+
+.feature-tile:hover {
+    border-color: rgba(249, 115, 22, 0.3);
+    transform: translateY(-6px);
+    box-shadow: var(--shadow-lg);
+}
+
+.feature-tile:hover::before {
+    transform: scaleX(1);
+}
+
+.feature-icon {
+    width: 48px;
+    height: 48px;
+    background: rgba(249, 115, 22, 0.12);
+    border: 1px solid rgba(249, 115, 22, 0.25);
+    border-radius: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    margin-bottom: 1rem;
+    color: var(--primary-light);
+}
+
+.feature-tile h4 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.feature-tile p {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.feature-hover-line {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent);
+    transform: scaleX(0);
+    transition: transform 0.4s ease;
+}
+
+.feature-tile:hover .feature-hover-line {
+    transform: scaleX(1);
+}
+
+/* Footer */
+.footer {
+    margin-top: 4rem;
+    padding: 1.5rem 0;
+    border-top: 1px solid var(--glass-border);
+    text-align: center;
+}
+
+.footer p {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.footer i {
+    margin-right: 0.5rem;
+    color: var(--primary-light);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Page Header - Premium
+───────────────────────────────────────────────────────────────────────────── */
+.page-header {
+    padding: 2rem 0 0;
+    margin-bottom: 0.5rem;
+}
+
+.page-header h2 {
+    font-size: 1.8rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #fff 0%, var(--primary-light) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.page-header p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
+/* Step Indicator */
+.step-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 2rem;
+    padding: 0.5rem;
+    background: rgba(10, 14, 20, 0.5);
+    border-radius: var(--radius-lg);
+}
+
+.step {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex: 1;
+    position: relative;
+}
+
+.step:not(:last-child)::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+    margin: 0 0.75rem;
+}
+
+.step-num {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    transition: var(--transition);
+}
+
+.step.active .step-num {
+    background: var(--gradient-primary);
+    border-color: var(--primary);
+    color: #fff;
+    box-shadow: var(--shadow-glow-sm);
+}
+
+.step-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.step.active .step-label {
+    color: var(--primary);
+}
+
+/* Form Elements */
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.form-group label i {
+    margin-right: 0.4rem;
+}
+
+.input-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 0.3rem;
+}
+
+input,
+select,
+textarea {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    background: rgba(18, 22, 31, 0.9);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-family: inherit;
+    transition: var(--transition);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: rgba(18, 22, 31, 1);
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+
+/* Video Wrapper */
+.video-wrapper {
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    aspect-ratio: 4/3;
+    max-width: 640px;
+    margin: 1.5rem auto;
+    border: 1px solid var(--glass-border);
+    transition: var(--transition);
+    box-shadow: var(--shadow-md);
+}
+
+.video-wrapper.small {
+    max-width: 480px;
+}
+
+video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.face-guide {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 200px;
+    height: 240px;
+    border: 2px dashed rgba(249, 115, 22, 0.5);
+    border-radius: 50%;
+    pointer-events: none;
+    animation: pulse-ring 2.4s ease-in-out infinite;
+}
+
+.cam-overlay {
+    position: absolute;
+    bottom: 1rem;
+    left: 0;
+    right: 0;
+    text-align: center;
+}
+
+.cam-text {
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    padding: 0.3rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+@keyframes pulse-ring {
+
+    0%,
+    100% {
+        opacity: 0.4;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    50% {
+        opacity: 0.9;
+        transform: translate(-50%, -50%) scale(1.05);
+    }
+}
+
+/* Thumbnail Grid */
+.thumbnail-grid {
+    display: flex;
+    gap: 0.85rem;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.thumbnail {
+    width: 85px;
+    height: 85px;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 2px solid var(--border);
+    position: relative;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.thumbnail:hover {
+    border-color: var(--primary);
+    transform: scale(1.05);
+    box-shadow: var(--shadow-glow-sm);
+}
+
+.thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.thumbnail .remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 22px;
+    height: 22px;
+    background: var(--error);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s;
+    color: white;
+}
+
+.thumbnail:hover .remove {
+    opacity: 1;
+}
+
+.capture-count {
+    text-align: center;
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--primary);
+}
+
+.capture-count i {
+    margin-right: 0.4rem;
+}
+
+.registration-controls {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.reg-tips {
+    display: flex;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+}
+
+.tip-item {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.tip-item i {
+    color: var(--primary-light);
+    margin-right: 0.4rem;
+}
+
+/* Status Box */
+.status-box {
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius-md);
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+    animation: slideIn 0.3s ease;
+    line-height: 1.6;
+    font-weight: 500;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.status-success {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    color: var(--success);
+}
+
+.status-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: var(--error);
+}
+
+.status-warning {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: var(--warning);
+}
+
+.status-info {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: var(--info);
+}
+
+/* Tables */
+.table-responsive {
+    overflow-x: auto;
+    margin-top: 1.25rem;
+    border-radius: var(--radius-md);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th,
+td {
+    padding: 1rem 1.2rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(33, 38, 45, 0.8);
+}
+
+th {
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+    background: rgba(18, 22, 31, 0.6);
+}
+
+td {
+    font-size: 0.9rem;
+}
+
+tbody tr {
+    transition: background 0.2s;
+}
+
+tbody tr:hover {
+    background: rgba(249, 115, 22, 0.05);
+}
+
+.user-id-badge {
+    display: inline-block;
+    background: rgba(249, 115, 22, 0.15);
+    padding: 0.2rem 0.6rem;
+    border-radius: 2rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary-light);
+}
+
+/* Filter Bar */
+.filter-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.filter-stats {
+    background: rgba(249, 115, 22, 0.08);
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+}
+
+.filter-stat {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+}
+
+.filter-stat-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.filter-stat-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--primary-light);
+}
+
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+}
+
+.stat-card {
+    text-align: center;
+    padding: 2.5rem 2rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient-primary);
+    opacity: 0.6;
+    transition: opacity 0.3s;
+}
+
+.stat-card:hover::before {
+    opacity: 1;
+}
+
+.stat-card::after {
+    content: attr(data-bg);
+    position: absolute;
+    bottom: -0.75rem;
+    right: 1rem;
+    font-size: 7rem;
+    font-weight: 900;
+    color: rgba(249, 115, 22, 0.04);
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
+}
+
+.stat-icon-wrapper {
+    margin-bottom: 0.75rem;
+}
+
+.stat-icon {
+    font-size: 2.2rem;
+    display: inline-block;
+    filter: drop-shadow(0 0 12px rgba(249, 115, 22, 0.5));
+    color: var(--primary-light);
+}
+
+.stat-card h3 {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    margin-bottom: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 600;
+}
+
+.stat-card p {
+    font-size: 3.5rem;
+    font-weight: 800;
+    line-height: 1;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -1px;
+}
+
+.stat-footer {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 0.75rem;
+}
+
+/* Info Panel */
+.info-panel {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 2rem;
+    padding: 1.25rem;
+    background: rgba(10, 14, 20, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+}
+
+.info-panel-icon {
+    width: 48px;
+    height: 48px;
+    background: rgba(249, 115, 22, 0.12);
+    border-radius: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--primary-light);
+}
+
+.info-panel-content h4 {
+    font-size: 0.9rem;
+    margin-bottom: 0.2rem;
+}
+
+.info-panel-content p {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+/* Scan Page Specific */
+.scan-page-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+.scan-layout {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 2rem;
+    align-items: start;
+}
+
+.scan-page-label {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.label-icon {
+    width: 50px;
+    height: 50px;
+    background: rgba(249, 115, 22, 0.12);
+    border-radius: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--primary-light);
+}
+
+.scan-page-label h2 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #fff 0%, var(--primary-light) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.scan-page-label p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.guide-tip {
+    margin-left: auto;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    padding: 0.4rem 1rem;
+    border-radius: 2rem;
+    font-size: 0.7rem;
+    color: var(--warning);
+}
+
+.guide-tip i {
+    margin-right: 0.4rem;
+}
+
+.camera-col {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.info-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.camera-frame {
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    aspect-ratio: 4/3;
+    border: 1px solid var(--glass-border);
+    transition: all 0.4s ease;
+    box-shadow: var(--shadow-md);
+}
+
+.camera-frame.scanning {
+    border-color: rgba(249, 115, 22, 0.6);
+    box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.15), var(--shadow-glow);
+}
+
+.camera-frame.success {
+    border-color: rgba(16, 185, 129, 0.6);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15), 0 0 32px rgba(16, 185, 129, 0.3);
+}
+
+.camera-frame.warning {
+    border-color: rgba(245, 158, 11, 0.6);
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.15), 0 0 24px rgba(245, 158, 11, 0.2);
+}
+
+.camera-frame video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.scan-corners {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.sc {
+    position: absolute;
+    width: 35px;
+    height: 35px;
+    border-color: var(--primary);
+    border-style: solid;
+}
+
+.sc.tl {
+    top: 20px;
+    left: 20px;
+    border-width: 3px 0 0 3px;
+    border-radius: 6px 0 0 0;
+}
+
+.sc.tr {
+    top: 20px;
+    right: 20px;
+    border-width: 3px 3px 0 0;
+    border-radius: 0 6px 0 0;
+}
+
+.sc.bl {
+    bottom: 20px;
+    left: 20px;
+    border-width: 0 0 3px 3px;
+    border-radius: 0 0 0 6px;
+}
+
+.sc.br {
+    bottom: 20px;
+    right: 20px;
+    border-width: 0 3px 3px 0;
+    border-radius: 0 0 6px 0;
+}
+
+.face-target-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 200px;
+    height: 240px;
+    border: 2px dashed rgba(249, 115, 22, 0.5);
+    border-radius: 50%;
+    pointer-events: none;
+    animation: pulse-ring 2.4s ease-in-out infinite;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ring-text {
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--primary-light);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 0.2rem 0.6rem;
+    border-radius: 2rem;
+    white-space: nowrap;
+}
+
+.scan-sweep {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%);
+    box-shadow: 0 0 14px var(--primary), 0 0 30px rgba(249, 115, 22, 0.4);
+    animation: sweep-line 2.2s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes sweep-line {
+    0% {
+        top: 0%;
+        opacity: 1;
+    }
+
+    85% {
+        opacity: 1;
+    }
+
+    100% {
+        top: 100%;
+        opacity: 0;
+    }
+}
+
+.live-badge {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(6px);
+    color: var(--primary);
+    border: 1px solid rgba(249, 115, 22, 0.5);
+    padding: 0.3rem 0.8rem;
+    border-radius: 2rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.live-pulse {
+    width: 6px;
+    height: 6px;
+    background: var(--primary);
+    border-radius: 50%;
+    animation: blink-dot 1s ease-in-out infinite;
+}
+
+.resolution-badge {
+    position: absolute;
+    bottom: 1rem;
+    right: 1rem;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    padding: 0.2rem 0.6rem;
+    border-radius: 2rem;
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+@keyframes blink-dot {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.2;
+    }
+}
+
+.camera-caption {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.camera-caption i {
+    margin-right: 0.4rem;
+    color: var(--primary-light);
+}
+
+.scan-btn-row {
+    display: flex;
+    justify-content: center;
+    margin-top: 0.5rem;
+}
+
+.btn-scan-face {
+    width: 100%;
+    max-width: 320px;
+    padding: 1rem 2rem;
+    font-size: 0.975rem;
+    justify-content: center;
+}
+
+/* Scan Result Card */
+.scan-result-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 2rem 1.75rem;
+    text-align: center;
+    transition: all 0.35s;
+}
+
+.scan-result-card.state-init {
+    border-color: var(--glass-border);
+}
+
+.scan-result-card.state-ready {
+    border-color: rgba(249, 115, 22, 0.3);
+    background: rgba(249, 115, 22, 0.05);
+}
+
+.scan-result-card.state-scanning {
+    border-color: rgba(249, 115, 22, 0.3);
+    background: rgba(249, 115, 22, 0.05);
+}
+
+.scan-result-card.state-success {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.06);
+    box-shadow: 0 0 28px rgba(16, 185, 129, 0.15);
+}
+
+.scan-result-card.state-warning {
+    border-color: rgba(245, 158, 11, 0.4);
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.scan-result-card.state-error {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.06);
+}
+
+.result-icon {
+    font-size: 3.5rem;
+    line-height: 1;
+    margin-bottom: 1rem;
+}
+
+.result-icon i {
+    display: inline-block;
+}
+
+.scan-result-card h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+}
+
+.scan-result-card p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.result-progress {
+    margin-top: 1rem;
+    height: 2px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    width: 0%;
+    height: 100%;
+    background: var(--gradient-primary);
+    border-radius: 99px;
+    transition: width 0.3s ease;
+}
+
+/* Recognized User Card */
+.user-recognized {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1.2rem;
+    animation: slideIn 0.35s ease;
+}
+
+.user-avatar-large {
+    min-width: 56px;
+    width: 56px;
+    height: 56px;
+    background: var(--gradient-primary);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+    box-shadow: var(--shadow-glow-sm);
+}
+
+.user-recognized-info h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.2rem;
+}
+
+.user-recognized-info p {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.confidence-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 0.4rem;
+    background: rgba(249, 115, 22, 0.12);
+    color: var(--primary-light);
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    padding: 0.15rem 0.6rem;
+    border-radius: 2rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+/* Log Panel */
+.log-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem 1.5rem;
+}
+
+.log-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.log-panel-header h4 {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin: 0;
+    font-weight: 700;
+}
+
+.log-panel-header h4 i {
+    margin-right: 0.4rem;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.4rem;
+    transition: all 0.2s;
+}
+
+.btn-icon:hover {
+    color: var(--primary);
+    background: rgba(249, 115, 22, 0.1);
+}
+
+.log-empty {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 0.75rem 0;
+    margin: 0;
+}
+
+.log-empty i {
+    margin-right: 0.4rem;
+}
+
+.log-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid rgba(33, 38, 45, 0.6);
+    font-size: 0.8rem;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-icon {
+    font-size: 0.85rem;
+    min-width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.log-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.08rem;
+    flex: 1
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Dashboard — Stats Page Redesign
+───────────────────────────────────────────────────────────────────────────── */
+
+/* Page header with controls */
+.dash-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 2rem 0 1.5rem;
+}
+
+.dash-header-left h2 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.dash-header-left h2 i {
+    color: var(--primary);
+}
+
+.dash-header-left p {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-top: 0.3rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.dash-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+/* Time range toggle */
+.time-range-toggle {
+    display: flex;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    padding: 0.2rem;
+    gap: 0.2rem;
+}
+
+.time-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.4rem 0.9rem;
+    border-radius: 0.45rem;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+}
+
+.time-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.time-btn.active {
+    background: var(--gradient-primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+.btn-sm {
+    padding: 0.45rem 1rem;
+    font-size: 0.8rem;
+}
+
+/* Dashboard hero card */
+.dashboard-hero-card {
+    position: relative;
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-xl);
+    padding: 2rem 2.5rem;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+    transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.dashboard-hero-card.health-good {
+    border-color: rgba(16, 185, 129, 0.35);
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.08), var(--shadow-md);
+}
+
+.dashboard-hero-card.health-warn {
+    border-color: rgba(245, 158, 11, 0.35);
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.08), var(--shadow-md);
+}
+
+.dashboard-hero-card.health-critical {
+    border-color: rgba(239, 68, 68, 0.35);
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.08), var(--shadow-md);
+}
+
+.hero-content {
+    display: flex;
+    align-items: center;
+    gap: 3rem;
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 1;
+}
+
+.hero-left {
+    flex-shrink: 0;
+}
+
+.hero-right {
+    flex: 1;
+    min-width: 260px;
+}
+
+.hero-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.hero-big-number {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    margin-bottom: 0.85rem;
+}
+
+.hero-num {
+    font-size: 4rem;
+    font-weight: 800;
+    line-height: 1;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.hero-sep {
+    font-size: 2rem;
+    color: var(--text-muted);
+    font-weight: 300;
+}
+
+.hero-denom {
+    font-size: 2rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+/* Trend badges */
+.trend-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.3rem 0.75rem;
+    border-radius: 99px;
+}
+
+.trend-badge.trend-up {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.trend-badge.trend-down {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--error);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.trend-badge.trend-neutral {
+    background: rgba(161, 169, 181, 0.08);
+    color: var(--text-muted);
+    border: 1px solid rgba(161, 169, 181, 0.15);
+}
+
+/* Attendance progress bar */
+.hero-percent-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.hero-percent-label strong {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.attendance-bar-track {
+    height: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 99px;
+    overflow: hidden;
+    margin-bottom: 0.5rem;
+}
+
+.attendance-bar-fill {
+    height: 100%;
+    border-radius: 99px;
+    background: var(--gradient-primary);
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.health-good .attendance-bar-fill {
+    background: linear-gradient(90deg, #10b981, #059669);
+}
+
+.health-warn .attendance-bar-fill {
+    background: linear-gradient(90deg, #f59e0b, #d97706);
+}
+
+.health-critical .attendance-bar-fill {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+}
+
+.bar-shimmer {
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent);
+    animation: shimmer-bar 2.4s ease-in-out infinite;
+}
+
+@keyframes shimmer-bar {
+    0% { left: -60%; }
+    100% { left: 160%; }
+}
+
+.bar-legend {
+    display: flex;
+    gap: 1.25rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.bar-legend i {
+    font-size: 0.5rem;
+    vertical-align: middle;
+    margin-right: 0.2rem;
+}
+
+.present-dot { color: var(--success); }
+.absent-dot { color: var(--error); }
+
+.hero-glow {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 80% 50%, rgba(249, 115, 22, 0.04), transparent 60%);
+    pointer-events: none;
+}
+
+/* Secondary stats row */
+.secondary-stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.mini-stat-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    padding: 1.25rem 1.4rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: var(--transition);
+}
+
+.mini-stat-card:hover {
+    border-color: rgba(249, 115, 22, 0.25);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.mini-stat-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background: rgba(249, 115, 22, 0.1);
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.mini-stat-icon.orange { background: rgba(249, 115, 22, 0.1); color: var(--primary); }
+.mini-stat-icon.red    { background: rgba(239, 68, 68, 0.1);  color: var(--error); }
+.mini-stat-icon.purple { background: rgba(102, 126, 234, 0.1); color: #818cf8; }
+.mini-stat-icon.green  { background: rgba(16, 185, 129, 0.1); color: var(--success); }
+
+.mini-stat-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.mini-stat-value {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.mini-stat-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mini-stat-sub {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-top: 0.1rem;
+}
+
+/* Chart panel */
+.chart-panel {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem 1.75rem;
+    margin-bottom: 1.5rem;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+}
+
+.chart-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.chart-panel-header h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.2rem;
+}
+
+.chart-panel-header h4 i {
+    color: var(--primary);
+}
+
+.chart-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.chart-panel-meta {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--primary);
+    background: rgba(249, 115, 22, 0.1);
+    padding: 0.25rem 0.75rem;
+    border-radius: 99px;
+    border: 1px solid rgba(249, 115, 22, 0.2);
+    white-space: nowrap;
+    align-self: flex-start;
+}
+
+.chart-canvas-wrapper {
+    position: relative;
+    width: 100%;
+    height: 200px;
+}
+
+.chart-canvas-wrapper canvas {
+    display: block;
+    width: 100% !important;
+}
+
+.chart-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    gap: 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    position: absolute;
+    inset: 0;
+}
+
+.chart-empty i {
+    font-size: 2.5rem;
+    opacity: 0.3;
+}
+
+/* Bottom two-column panels */
+.bottom-panels-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.bottom-panel.card {
+    margin-top: 0;
+    padding: 1.5rem;
+}
+
+.bottom-panel.card:hover {
+    transform: none;
+    box-shadow: var(--shadow-md);
+}
+
+.bottom-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.bottom-panel-header h4 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.panel-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: rgba(249, 115, 22, 0.15);
+    color: var(--primary);
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    padding: 0.15rem 0.6rem;
+    border-radius: 99px;
+    min-width: 24px;
+    text-align: center;
+}
+
+.panel-badge-warn {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.bottom-panel-body {
+    max-height: 300px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(249, 115, 22, 0.3) transparent;
+}
+
+.panel-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    padding: 1.5rem 0;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+}
+
+/* Check-in list items */
+.checkin-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.checkin-item:last-child {
+    border-bottom: none;
+}
+
+.checkin-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.2), rgba(249, 115, 22, 0.08));
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--primary);
+    flex-shrink: 0;
+}
+
+.checkin-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.checkin-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.checkin-time {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.checkin-tick {
+    color: var(--success);
+    font-size: 0.95rem;
+    flex-shrink: 0;
+}
+
+/* Absent list items */
+.absent-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.absent-item:last-child {
+    border-bottom: none;
+}
+
+.absent-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--error);
+    flex-shrink: 0;
+}
+
+.absent-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.absent-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.absent-status {
+    font-size: 0.7rem;
+    color: var(--error);
+    opacity: 0.75;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+/* Flash update animation */
+@keyframes flash-update {
+    0%   { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+    40%  { box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18); }
+    100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+}
+
+.flash-update {
+    animation: flash-update 0.8s ease-out;
+}
+
+/* Responsive breakpoints */
+@media (max-width: 960px) {
+    .secondary-stats-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .bottom-panels-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dash-header {
+        flex-direction: column;
+    }
+
+    .dash-controls {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 600px) {
+    .hero-content {
+        gap: 1.5rem;
+    }
+
+    .hero-num {
+        font-size: 3rem;
+    }
+
+    .hero-denom {
+        font-size: 1.6rem;
+    }
+
+    .dashboard-hero-card {
+        padding: 1.5rem;
+    }
+
+    .secondary-stats-row {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 420px) {
+    .secondary-stats-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Check-out — Scan page states & attendance table badges
+───────────────────────────────────────────────────────────────────────────── */
+
+/* Scan result card — checkout state */
+.scan-result-card.state-checkout {
+    border-color: rgba(102, 126, 234, 0.5);
+    background: rgba(102, 126, 234, 0.08);
+}
+
+/* Camera frame — checkout accent */
+.camera-frame.checkout .face-target-ring {
+    border-color: rgba(102, 126, 234, 0.6);
+    box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+}
+
+/* Log panel — checkout entry */
+.log-entry.log-checkout .log-icon {
+    color: #818cf8;
+}
+
+/* Attendance table — time badges */
+.time-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.4rem;
+}
+
+.checkin-badge {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.checkout-badge {
+    background: rgba(102, 126, 234, 0.1);
+    color: #818cf8;
+    border: 1px solid rgba(102, 126, 234, 0.25);
+}
+
+
+================================================================================
+FILE: vision/aligner.py
+================================================================================
+
+import cv2
+
+
+class FaceAligner:
+	def __init__(self, target_size=(112, 112)):
+		self.target_size = target_size
+
+	def align_face(self, frame, bbox):
+		"""
+		Input:
+			frame -> original image
+			bbox  -> [x1, y1, x2, y2]
+
+		Output:
+			aligned_face (112x112)
+		"""
+
+		h, w, _ = frame.shape
+		x1, y1, x2, y2 = bbox
+
+		# Safety clamp (important).
+		x1 = max(0, x1)
+		y1 = max(0, y1)
+		x2 = min(w, x2)
+		y2 = min(h, y2)
+
+		# Crop face.
+		face = frame[y1:y2, x1:x2]
+
+		if face.size == 0:
+			return None
+
+		# Resize to ArcFace input size.
+		aligned_face = cv2.resize(face, self.target_size)
+
+		return aligned_face
+
+
+================================================================================
+FILE: vision/detector.py
+================================================================================
+
+import cv2
+# trigger reload
+import mediapipe as mp
+
+
+class FaceDetector:
+	def __init__(self, confidence=0.5):
+		self.mp_face_detection = mp.solutions.face_detection
+		self.detector = self.mp_face_detection.FaceDetection(
+			model_selection=0,
+			min_detection_confidence=confidence,
+		)
+
+	def detect_faces(self, frame):
+		"""
+		Input: frame (BGR image from OpenCV)
+		Output: list of bounding boxes [x1, y1, x2, y2]
+		"""
+
+		h, w, _ = frame.shape
+
+		# Convert BGR -> RGB (MediaPipe requirement)
+		rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+		results = self.detector.process(rgb_frame)
+
+		boxes = []
+
+		if results.detections:
+			for detection in results.detections:
+				bbox = detection.location_data.relative_bounding_box
+
+				x1 = int(bbox.xmin * w)
+				y1 = int(bbox.ymin * h)
+				width = int(bbox.width * w)
+				height = int(bbox.height * h)
+
+				x2 = x1 + width
+				y2 = y1 + height
+
+				boxes.append([x1, y1, x2, y2])
+
+		return boxes
+
+
+================================================================================
+FILE: vision/embedder.py
+================================================================================
+
+import cv2
+import numpy as np
+from insightface.app import FaceAnalysis
+
+
+class FaceEmbedder:
+	def __init__(self):
+		"""
+		Initialize ArcFace recognition model for lazy loading on first use.
+		"""
+		self.app = None
+		self.rec_model = None
+		self._init_error = None
+
+	def _ensure_model_loaded(self):
+		"""Lazy load the model on first use with error handling."""
+		if self.app is not None:
+			return  # Already loaded
+		
+		if self._init_error:
+			raise self._init_error
+		
+		try:
+			# Use FaceAnalysis which auto-downloads buffalo_l model
+			self.app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+			self.app.prepare(ctx_id=-1, det_size=(640, 640))
+			
+			# Extract the recognition model - it's loaded as part of FaceAnalysis
+			# The _models attribute contains individual models
+			if hasattr(self.app, '_models'):
+				for model in self.app._models:
+					if hasattr(model, 'taskname') and model.taskname == 'recognition':
+						self.rec_model = model
+						break
+			
+			if self.rec_model is None and hasattr(self.app, 'models'):
+				if isinstance(self.app.models, dict) and 'recognition' in self.app.models:
+					self.rec_model = self.app.models['recognition']
+			
+			if self.rec_model is None:
+				# Fallback: the app has a built-in method for embeddings
+				self.rec_model = self.app
+				
+		except Exception as e:
+			self._init_error = RuntimeError(f"Face model initialization failed: {e}")
+			raise self._init_error
+
+	def get_embedding(self, face_image):
+		"""
+		Input:
+			face_image -> cropped face (112x112 BGR image)
+
+		Output:
+			embedding -> 512 dimensional vector
+		"""
+		if face_image is None or face_image.size == 0:
+			return None
+
+		try:
+			self._ensure_model_loaded()
+		except Exception as e:
+			print(f"Skipping embedding extraction: {e}")
+			return None
+
+		try:
+			# Ensure 112x112 input
+			if face_image.shape[:2] != (112, 112):
+				face_image = cv2.resize(face_image, (112, 112))
+			
+			# Prepare input for the model
+			# Most ONNX models expect shape (batch, channels, height, width)
+			face_chw = np.transpose(face_image, (2, 0, 1))  # HWC -> CHW
+			batch_input = np.expand_dims(face_chw, 0).astype(np.float32)  # Add batch
+			
+			# Get embedding from the recognition model
+			if hasattr(self.rec_model, 'forward'):
+				embedding = self.rec_model.forward(batch_input)
+			elif hasattr(self.rec_model, 'get_feat'):
+				embedding = self.rec_model.get_feat(face_image)
+			else:
+				# Fallback: if rec_model is the app itself
+				print("Warning: Using fallback embedding method")
+				return None
+			
+			if embedding is None or embedding.size == 0:
+				return None
+
+			embedding = np.asarray(embedding).squeeze()
+			if embedding.size == 0 or embedding.ndim != 1:
+				return None
+
+			return embedding
+		except Exception as e:
+			print(f"Error extracting embedding: {e}")
+			return None
+
+
+================================================================================
+SUMMARY: 17 Python files extracted
+================================================================================

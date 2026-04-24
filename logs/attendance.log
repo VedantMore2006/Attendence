@@ -1,0 +1,302 @@
+2026-04-13 11:17:21 | INFO     | api.server | ============================================================
+2026-04-13 11:17:21 | INFO     | api.server | Smart Attendance API — session start
+2026-04-13 11:17:21 | INFO     | api.server | ============================================================
+2026-04-13 11:17:21 | INFO     | api.server | Initialising database schema...
+2026-04-13 11:17:21 | INFO     | api.server | Database ready
+2026-04-13 11:17:21 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-13 11:17:21 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-13 11:17:21 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-13 11:17:21 | DEBUG    | matplotlib | interactive is False
+2026-04-13 11:17:21 | DEBUG    | matplotlib | platform is linux
+2026-04-13 11:17:21 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-13 11:17:21 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-13 11:17:23 | INFO     | api.server | FaceDetector ready
+2026-04-13 11:17:23 | INFO     | api.server | FaceAligner ready
+2026-04-13 11:17:26 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:43 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:43 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:44 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:45 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:46 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:47 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:48 | ERROR    | api.routes | DB error fetching today stats: no such table: users
+2026-04-13 11:17:48 | ERROR    | api.routes | DB error listing users: no such table: users
+2026-04-13 11:17:48 | WARNING  | api.errors | AppError [DatabaseError] on /api/stats/today: A database error occurred
+2026-04-13 11:17:48 | WARNING  | api.errors | AppError [DatabaseError] on /api/users: A database error occurred
+2026-04-13 11:17:48 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:48 | ERROR    | api.routes | DB error listing attendance: no such table: attendance
+2026-04-13 11:17:48 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:48 | WARNING  | api.errors | AppError [DatabaseError] on /api/attendance: A database error occurred
+2026-04-13 11:17:48 | INFO     | api.server | Smart Attendance API shutting down
+2026-04-13 11:17:51 | INFO     | api.server | ============================================================
+2026-04-13 11:17:51 | INFO     | api.server | Smart Attendance API — session start
+2026-04-13 11:17:51 | INFO     | api.server | ============================================================
+2026-04-13 11:17:51 | INFO     | api.server | Initialising database schema...
+2026-04-13 11:17:51 | INFO     | api.server | Database ready
+2026-04-13 11:17:51 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-13 11:17:51 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-13 11:17:51 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-13 11:17:51 | DEBUG    | matplotlib | interactive is False
+2026-04-13 11:17:51 | DEBUG    | matplotlib | platform is linux
+2026-04-13 11:17:51 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-13 11:17:51 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-13 11:17:52 | INFO     | api.server | FaceDetector ready
+2026-04-13 11:17:52 | INFO     | api.server | FaceAligner ready
+2026-04-13 11:17:54 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 4: aligning face box=[249, 233, 405, 389]
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 6: loaded 1 users, 5 total embeddings
+2026-04-13 11:18:21 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant More  score=0.9109  threshold=0.55
+2026-04-13 11:18:21 | INFO     | api.routes | SCAN result=marked  user=Vedant More  id=1  time=11:18:21  confidence=0.9109
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 4: aligning face box=[235, 161, 361, 287]
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 6: loaded 2 users, 10 total embeddings
+2026-04-13 11:19:14 | DEBUG    | api.routes | SCAN step 6: best_match=2  name=Ashustosh Rathod  score=0.6355  threshold=0.55
+2026-04-13 11:19:14 | INFO     | api.routes | SCAN result=marked  user=Ashustosh Rathod  id=2  time=11:19:14  confidence=0.6355
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 4: aligning face box=[203, 207, 340, 344]
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 6: loaded 3 users, 15 total embeddings
+2026-04-13 11:19:45 | DEBUG    | api.routes | SCAN step 6: best_match=3  name=Tejas Kale  score=0.8433  threshold=0.55
+2026-04-13 11:19:45 | INFO     | api.routes | SCAN result=marked  user=Tejas Kale  id=3  time=11:19:45  confidence=0.8433
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 4: aligning face box=[260, 211, 405, 356]
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 6: loaded 4 users, 20 total embeddings
+2026-04-13 11:20:18 | DEBUG    | api.routes | SCAN step 6: best_match=4  name=Payal Tayade  score=0.9248  threshold=0.55
+2026-04-13 11:20:18 | INFO     | api.routes | SCAN result=marked  user=Payal Tayade  id=4  time=11:20:18  confidence=0.9248
+2026-04-24 16:49:05 | INFO     | api.server | ============================================================
+2026-04-24 16:49:05 | INFO     | api.server | Smart Attendance API — session start
+2026-04-24 16:49:05 | INFO     | api.server | ============================================================
+2026-04-24 16:49:05 | INFO     | api.server | Initialising database schema...
+2026-04-24 16:49:05 | INFO     | api.server | Database ready
+2026-04-24 16:49:05 | INFO     | api.server | Loading vision pipeline (detector / aligner / embedder)...
+2026-04-24 16:49:06 | DEBUG    | matplotlib | matplotlib data path: /home/vedant/miniconda3/envs/face_env/lib/python3.10/site-packages/matplotlib/mpl-data
+2026-04-24 16:49:06 | DEBUG    | matplotlib | CONFIGDIR=/home/vedant/.config/matplotlib
+2026-04-24 16:49:06 | DEBUG    | matplotlib | interactive is False
+2026-04-24 16:49:06 | DEBUG    | matplotlib | platform is linux
+2026-04-24 16:49:06 | DEBUG    | matplotlib | CACHEDIR=/home/vedant/.cache/matplotlib
+2026-04-24 16:49:06 | DEBUG    | matplotlib.font_manager | Using fontManager instance from /home/vedant/.cache/matplotlib/fontlist-v390.json
+2026-04-24 16:49:14 | INFO     | api.server | FaceDetector ready
+2026-04-24 16:49:14 | INFO     | api.server | FaceAligner ready
+2026-04-24 16:49:23 | INFO     | api.server | FaceEmbedder (ArcFace) ready — face scan is available
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 4: aligning face box=[199, 242, 328, 371]
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 6: loaded 5 users, 25 total embeddings
+2026-04-24 16:51:35 | DEBUG    | api.routes | SCAN step 6: best_match=5  name=Tanvi  score=0.8212  threshold=0.55
+2026-04-24 16:51:35 | INFO     | api.routes | SCAN result=marked  user=Tanvi  id=5  time=16:51:35  confidence=0.8212
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 3: detected 2 face(s)
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 4: aligning face box=[182, 328, 309, 455]
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 6: loaded 5 users, 25 total embeddings
+2026-04-24 16:51:43 | DEBUG    | api.routes | SCAN step 6: best_match=5  name=Tanvi  score=0.6559  threshold=0.55
+2026-04-24 16:51:43 | INFO     | api.routes | SCAN result=checked_out  user=Tanvi  id=5  checked_in_at=16:51:35  checked_out_at=16:51:43  confidence=0.6559
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 3: detected 2 face(s)
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 4: aligning face box=[209, 281, 347, 419]
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 6: loaded 5 users, 25 total embeddings
+2026-04-24 16:51:51 | DEBUG    | api.routes | SCAN step 6: best_match=5  name=Tanvi  score=0.7620  threshold=0.55
+2026-04-24 16:51:51 | INFO     | api.routes | SCAN result=already_marked  user=Tanvi  id=5  checked_in_at=16:51:35  checked_out_at=16:51:43
+2026-04-24 16:52:14 | DEBUG    | api.routes | SCAN step 3: running face detection on frame 640x480
+2026-04-24 16:52:14 | DEBUG    | api.routes | SCAN step 3: detected 1 face(s)
+2026-04-24 16:52:14 | DEBUG    | api.routes | SCAN step 4: aligning face box=[230, 212, 407, 389]
+2026-04-24 16:52:14 | DEBUG    | api.routes | SCAN step 4: aligned face shape=(112, 112, 3)
+2026-04-24 16:52:14 | DEBUG    | api.routes | SCAN step 5: extracting embedding
+2026-04-24 16:52:15 | DEBUG    | api.routes | SCAN step 5: embedding shape=(512,)
+2026-04-24 16:52:15 | DEBUG    | api.routes | SCAN step 6: loaded 5 users, 25 total embeddings
+2026-04-24 16:52:15 | DEBUG    | api.routes | SCAN step 6: best_match=1  name=Vedant More  score=0.6761  threshold=0.55
+2026-04-24 16:52:15 | INFO     | api.routes | SCAN result=marked  user=Vedant More  id=1  time=16:52:15  confidence=0.6761
